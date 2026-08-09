@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Earth Special Force: Online</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-user-select:none;user-select:none}
+  html,body{background:#050510;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;width:100%;height:100%}
+  #lobby{position:absolute;inset:0;z-index:100;background:linear-gradient(135deg,#050510 0%,#0f0f2e 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:16px}
+  #lobby h1{font-size:28px;color:#fbbf24;text-shadow:0 0 20px rgba(251,191,36,0.4);letter-spacing:2px}
+  .lobby-box{background:rgba(15,23,42,0.9);border:1px solid #1e3a5f;border-radius:14px;padding:20px;width:100%;max-width:420px;display:flex;flex-direction:column;gap:12px}
+  .lobby-box label{font-size:12px;color:#94a3b8;font-weight:600}
+  .lobby-box input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:14px;outline:none}
+  .lobby-box input:focus{border-color:#3b82f6}
+  .color-row{display:flex;gap:10px;align-items:center}
+  .color-row input[type="color"]{width:44px;height:36px;border:none;border-radius:6px;padding:0;background:none;cursor:pointer}
+  .color-row span{font-size:13px;color:#cbd5e1}
+  #start-btn{background:linear-gradient(90deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:800;cursor:pointer;letter-spacing:1px;box-shadow:0 4px 20px rgba(59,130,246,0.3)}
+  #start-btn:active{transform:scale(0.97)}
+  #lobby-players{max-height:120px;overflow-y:auto;font-size:12px;color:#94a3b8;border-top:1px solid #1e3a5f;padding-top:10px;margin-top:4px}
+  #gameCanvas{position:absolute;top:0;left:0;width:100%;height:100%;background:#0a0a1a;display:none}
+  #hud{position:absolute;top:0;left:0;right:0;padding:8px 12px;display:flex;gap:12px;align-items:center;pointer-events:none;z-index:10;display:none}
+  .bar-group{flex:1;max-width:160px}
+  .bar-label{display:flex;justify-content:space-between;font-size:10px;font-weight:bold;margin-bottom:2px}
+  .bar-track{background:#1a1a2e;height:10px;border-radius:5px;overflow:hidden;border:1px solid #1e3a5f}
+  .bar-fill{height:100%;transition:width 0.15s}
+  #hp-fill{background:linear-gradient(90deg,#ef4444,#f87171)}
+  #ki-fill{background:linear-gradient(90deg,#3b82f6,#60a5fa)}
+  #exp-fill{background:linear-gradient(90deg,#22c55e,#4ade80)}
+  #level-box{width:48px;text-align:center}
+  #level-box .lbl{color:#fbbf24;font-size:9px;font-weight:bold}
+  #level-box .val{color:#fbbf24;font-size:16px;font-weight:900}
+  #state-box{position:absolute;top:52px;left:12px;font-size:11px;pointer-events:none;z-index:10;display:none}
+  #state-text{color:#22d3ee;font-weight:bold;font-family:monospace}
+  #charge-bar{position:absolute;top:72px;left:50%;transform:translateX(-50%);width:200px;height:6px;background:rgba(0,0,0,0.6);border-radius:3px;overflow:hidden;display:none;z-index:10;border:1px solid rgba(59,130,246,0.5)}
+  #charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa,#a855f7);transition:width 0.05s}
+  #charge-label{position:absolute;top:80px;left:50%;transform:translateX(-50%);color:#60a5fa;font-size:10px;font-weight:bold;display:none;z-index:10;text-shadow:0 0 8px rgba(59,130,246,0.8)}
+  #leaderboard{position:absolute;top:52px;right:12px;background:rgba(5,5,16,0.85);border:1px solid #1e3a5f;border-radius:8px;padding:8px 10px;z-index:10;display:none;font-size:11px;min-width:140px;pointer-events:none}
+  #leaderboard h4{color:#fbbf24;margin-bottom:6px;font-size:11px}
+  .lb-row{display:flex;justify-content:space-between;gap:10px;margin:2px 0;color:#cbd5e1}
+  .lb-row.me{color:#fbbf24;font-weight:bold}
+  #minimap{position:absolute;bottom:210px;right:8px;width:120px;height:90px;background:rgba(5,5,16,0.85);border:1px solid #1e3a5f;border-radius:8px;z-index:10;display:none}
+  #joystick-zone{position:absolute;bottom:20px;left:20px;width:140px;height:140px;z-index:20;display:none}
+  #joystick-base{position:absolute;width:120px;height:120px;border:3px solid rgba(59,130,246,0.3);border-radius:50%;background:rgba(15,23,42,0.5);top:10px;left:10px}
+  #joystick-knob{position:absolute;width:50px;height:50px;background:rgba(59,130,246,0.6);border:2px solid rgba(147,197,253,0.8);border-radius:50%;top:45px;left:45px;box-shadow:0 0 15px rgba(59,130,246,0.4)}
+  #action-zone{position:absolute;bottom:20px;right:20px;z-index:20;display:none;width:260px;height:180px}
+  .act-btn{position:absolute;width:56px;height:56px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;background:rgba(30,41,59,0.7);backdrop-filter:blur(4px);box-shadow:0 4px 12px rgba(0,0,0,0.4);transition:transform 0.05s,background 0.1s}
+  .act-btn:active{transform:scale(0.92);background:rgba(59,130,246,0.5)}
+  #btn-j{bottom:110px;right:180px;border-color:rgba(59,130,246,0.5);color:#60a5fa}
+  #btn-k{bottom:110px;right:120px;border-color:rgba(251,191,36,0.5);color:#fbbf24}
+  #btn-u{bottom:110px;right:60px;border-color:rgba(168,85,247,0.5);color:#c084fc}
+  #btn-o{bottom:110px;right:0px;border-color:rgba(249,115,22,0.5);color:#fb923c;font-size:16px}
+  #btn-l{bottom:40px;right:140px;border-color:rgba(239,68,68,0.5);color:#f87171}
+  #btn-h{bottom:40px;right:70px;border-color:rgba(34,211,238,0.5);color:#22d3ee;font-size:14px}
+  #btn-i{bottom:40px;right:0px;width:48px;height:48px;font-size:11px;border-color:rgba(34,197,94,0.4);color:#4ade80}
+  #settings-btn{position:absolute;top:8px;right:8px;width:36px;height:36px;z-index:30;background:rgba(30,41,59,0.8);border:1px solid #334155;border-radius:8px;color:#94a3b8;font-size:18px;display:none;align-items:center;justify-content:center;cursor:pointer}
+  #settings-panel{position:absolute;top:50px;right:8px;width:220px;background:rgba(10,10,26,0.95);border:1px solid #1e3a5f;border-radius:10px;padding:12px;z-index:30;display:none;font-size:12px}
+  #settings-panel h3{color:#fbbf24;margin-bottom:8px;font-size:13px}
+  .setting-row{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+  .setting-row label{color:#94a3b8}
+  .toggle-btn{background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer}
+  .toggle-btn.active{background:#3b82f6;border-color:#3b82f6}
+  .bot-row{display:flex;gap:6px;margin:8px 0;padding-top:8px;border-top:1px solid #1e3a5f}
+  .bot-row button{flex:1;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px;font-size:11px;cursor:pointer;font-weight:600}
+  .bot-row button:active{transform:scale(0.95)}
+  .vol-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .vol-row label{color:#94a3b8;font-size:11px;flex:1}
+  .vol-row input[type=range]{flex:2}
+  #log{position:absolute;bottom:8px;left:8px;width:320px;max-height:100px;overflow-y:auto;background:rgba(5,5,16,0.7);color:#64748b;font-size:10px;font-family:monospace;padding:6px 8px;border-radius:6px;pointer-events:none;z-index:5;display:none}
+  #log div{margin-bottom:1px}
+  #desktop-hint{position:absolute;bottom:8px;right:8px;background:rgba(10,10,26,0.9);border:1px solid #1e3a5f;border-radius:8px;padding:10px 14px;font-size:11px;color:#94a3b8;z-index:10;line-height:1.6;display:none}
+  #desktop-hint kbd{background:#1e293b;color:#e2e8f0;padding:1px 5px;border-radius:3px;font-family:monospace;font-size:10px;border:1px solid #334155}
+  @media (max-width: 768px) {
+    #joystick-zone{display:block !important}
+    #action-zone{display:block !important}
+    #desktop-hint{display:none !important}
+  }
+  @media (min-width: 769px) {
+    #joystick-zone{display:none !important}
+    #action-zone{display:none !important}
+    #log{display:block !important}
+    #desktop-hint{display:block !important}
+  }
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<div id="lobby">
+  <h1>⚡ EARTH SPECIAL FORCE</h1>
+  <div class="lobby-box">
+    <label>Имя бойца</label>
+    <input id="lobby-name" placeholder="Ваше имя" maxlength="14" value="Warrior">
+    <label>Пароль (для сохранения прогресса)</label>
+    <input id="lobby-password" type="password" placeholder="Пароль" maxlength="20" value="">
+    <label>ID Комнаты</label>
+    <input id="lobby-room" placeholder="room-1" value="room-1">
+    <label>Кастомизация</label>
+    <div class="color-row"><input type="color" id="col-hair" value="#fbbf24"><span>Волосы</span></div>
+    <div class="color-row"><input type="color" id="col-aura" value="#3b82f6"><span>Аура</span></div>
+    <div class="color-row"><input type="color" id="col-kameha" value="#3b82f6"><span>Ki / Камехамеха</span></div>
+    <div class="color-row"><input type="color" id="col-trail" value="#22d3ee"><span>Шлейф</span></div>
+    <button id="start-btn">В БОЙ ⚔</button>
+    <div style="color:#64748b;font-size:10px;line-height:1.5;margin-top:4px">
+      <b>PC:</b> WASD — движение | J — кибласт | K(hold) — зарядка удара | L — захват | H — телепорт | O — турбо<br>
+      <b>U(hold)</b> — Камехамеха | <b>I(hold)</b> — зарядка Ki
+    </div>
+    <div id="lobby-players"></div>
+  </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+  <div class="bar-group">
+    <div class="bar-label" style="color:#ef4444"><span>HP</span><span id="hpText">100/100</span></div>
+    <div class="bar-track"><div id="hp-fill" class="bar-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-group">
+    <div class="bar-label" style="color:#3b82f6"><span>KI</span><span id="kiText">100/100</span></div>
+    <div class="bar-track"><div id="ki-fill" class="bar-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-group">
+    <div class="bar-label" style="color:#22c55e"><span>EXP</span><span id="expText">0/100</span></div>
+    <div class="bar-track"><div id="exp-fill" class="bar-fill" style="width:0%"></div></div>
+  </div>
+  <div id="level-box"><div class="lbl">LVL</div><div class="val" id="levelText">1</div></div>
+</div>
+
+<div id="state-box">STATE: <span id="state-text">IDLE</span></div>
+
+<div id="charge-bar"><div id="charge-fill"></div></div>
+<div id="charge-label">CHARGE</div>
+
+<div id="leaderboard"><h4>🏆 Топ</h4><div id="lb-body"></div></div>
+<canvas id="minimap"></canvas>
+
+<div id="settings-btn">⚙</div>
+<div id="settings-panel">
+  <h3>⚙ Настройки</h3>
+  <div class="setting-row"><label>Лог</label><button class="toggle-btn" id="toggle-log">OFF</button></div>
+  <div class="vol-row"><label>🔊 Звук</label><input type="range" id="vol-slider" min="0" max="100" value="60"></div>
+  <div class="bot-row">
+    <button id="bot-add">+ 🤖 Бот</button>
+    <button id="bot-remove">- 🤖 Бот</button>
+  </div>
+  <div style="margin-top:8px;color:#64748b;font-size:10px;line-height:1.5">
+    <b>Мобильный:</b> Стик — движение, двойной тап — рывок, удержание — swoop.<br>
+    <b>U</b> — зарядка Камехамеха (отпустить — выстрел). <b>K</b> — зарядка удара.<br>
+    <b>I</b> — зарядка Ki. <b>L</b> — захват (крутит и бросает). <b>O</b> — турбо.
+  </div>
+</div>
+
+<div id="joystick-zone">
+  <div id="joystick-base"></div>
+  <div id="joystick-knob"></div>
+</div>
+
+<div id="action-zone">
+  <div class="act-btn" id="btn-j" data-key="J">J</div>
+  <div class="act-btn" id="btn-k" data-key="K">K</div>
+  <div class="act-btn" id="btn-u" data-key="U">U</div>
+  <div class="act-btn" id="btn-o" data-key="O">O</div>
+  <div class="act-btn" id="btn-l" data-key="L">L</div>
+  <div class="act-btn" id="btn-h" data-key="H">H</div>
+  <div class="act-btn" id="btn-i" data-key="I">I</div>
+</div>
+
+<div id="log">
+  <div style="color:#22d3ee">> Earth Special Force: Online loaded</div>
+</div>
+
+<div id="desktop-hint">
+  <b>Управление:</b><br>
+  <kbd>WASD</kbd> Движение / Двойной тап = рывок / Удержание = swoop<br>
+  <kbd>J</kbd> Ki Blast &nbsp; <kbd>K(hold)</kbd> Зарядка удара &nbsp; <kbd>L</kbd> Захват &nbsp; <kbd>H</kbd> Телепорт &nbsp; <kbd>O</kbd> Турбо<br>
+  <kbd>U(hold)</kbd> Камехамеха &nbsp; <kbd>I(hold)</kbd> Зарядка Ki<br>
+  Отпустить U / K для заряженной атаки
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const minimap = document.getElementById('minimap');
+  const mmCtx = minimap.getContext('2d');
+  const lobby = document.getElementById('lobby');
+  const hpText = document.getElementById('hpText');
+  const kiText = document.getElementById('kiText');
+  const expText = document.getElementById('expText');
+  const hpFill = document.getElementById('hp-fill');
+  const kiFill = document.getElementById('ki-fill');
+  const expFill = document.getElementById('exp-fill');
+  const stateText = document.getElementById('state-text');
+  const levelText = document.getElementById('levelText');
+  const lbBody = document.getElementById('lb-body');
+  const logEl = document.getElementById('log');
+  const joyZone = document.getElementById('joystick-zone');
+  const joyKnob = document.getElementById('joystick-knob');
+  const actionZone = document.getElementById('action-zone');
+  const chargeBar = document.getElementById('charge-bar');
+  const chargeFill = document.getElementById('charge-fill');
+  const chargeLabel = document.getElementById('charge-label');
+  const hud = document.getElementById('hud');
+  const stateBox = document.getElementById('state-box');
+  const leaderboard = document.getElementById('leaderboard');
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsPanel = document.getElementById('settings-panel');
+  const toggleLog = document.getElementById('toggle-log');
+  const volSlider = document.getElementById('vol-slider');
+
+  let ws = null, myId = null, roomId = 'room-1';
+  let world = {w: 2000, h: 1500};
+  let gameState = null, connected = false;
+  let W, H, camX = 0, camY = 0, localTick = 0;
+  let masterVolume = 0.6;
+
+  function log(msg, color='#94a3b8') {
+    const d = document.createElement('div');
+    d.style.color = color;
+    d.textContent = '> ' + msg;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
+    if (logEl.children.length > 30) logEl.removeChild(logEl.firstChild);
+  }
+
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // === AUDIO ===
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  function playSound(type) {
+    try {
+      const ctx = getAudioCtx();
+      const now = ctx.currentTime;
+      const vol = masterVolume;
+
+      switch(type) {
+        case 'kamehamehaFire': {
+          const o1 = ctx.createOscillator();
+          const g1 = ctx.createGain();
+          o1.type = 'sawtooth';
+          o1.frequency.setValueAtTime(80, now);
+          o1.frequency.exponentialRampToValueAtTime(600, now + 0.6);
+          g1.gain.setValueAtTime(0.25 * vol, now);
+          g1.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+          o1.connect(g1); g1.connect(ctx.destination);
+          o1.start(now); o1.stop(now + 1.0);
+
+          const o2 = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          o2.type = 'square';
+          o2.frequency.setValueAtTime(40, now);
+          o2.frequency.exponentialRampToValueAtTime(150, now + 0.8);
+          g2.gain.setValueAtTime(0.18 * vol, now);
+          g2.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+          o2.connect(g2); g2.connect(ctx.destination);
+          o2.start(now); o2.stop(now + 1.2);
+          break;
+        }
+        case 'kiCharge': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.setValueAtTime(520, now);
+          o.frequency.linearRampToValueAtTime(780, now + 0.12);
+          g.gain.setValueAtTime(0.12 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.25);
+          break;
+        }
+        case 'kamehamehaCharge': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(70, now);
+          o.frequency.linearRampToValueAtTime(130, now + 0.12);
+          g.gain.setValueAtTime(0.1 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.22);
+          break;
+        }
+        case 'meleeCharge': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle';
+          o.frequency.setValueAtTime(180, now);
+          o.frequency.linearRampToValueAtTime(380, now + 0.1);
+          g.gain.setValueAtTime(0.12 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.2);
+          break;
+        }
+        case 'turbo': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.setValueAtTime(500, now);
+          o.frequency.exponentialRampToValueAtTime(1400, now + 0.15);
+          g.gain.setValueAtTime(0.2 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.35);
+
+          const o2 = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          o2.type = 'triangle';
+          o2.frequency.setValueAtTime(200, now);
+          o2.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+          g2.gain.setValueAtTime(0.1 * vol, now);
+          g2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+          o2.connect(g2); g2.connect(ctx.destination);
+          o2.start(now); o2.stop(now + 0.35);
+          break;
+        }
+        case 'kiBlast': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'square';
+          o.frequency.setValueAtTime(900, now);
+          o.frequency.exponentialRampToValueAtTime(1400, now + 0.08);
+          g.gain.setValueAtTime(0.12 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.18);
+          break;
+        }
+        case 'meleeHit': {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(120, now);
+          o.frequency.exponentialRampToValueAtTime(25, now + 0.35);
+          g.gain.setValueAtTime(0.3 * vol, now);
+          g.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.45);
+
+          const bufferSize = ctx.sampleRate * 0.12;
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i/bufferSize);
+          const noise = ctx.createBufferSource();
+          noise.buffer = buffer;
+          const ng = ctx.createGain();
+          ng.gain.setValueAtTime(0.18 * vol, now);
+          ng.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          noise.connect(ng); ng.connect(ctx.destination);
+          noise.start(now);
+          break;
+        }
+      }
+    } catch(e) { /* audio blocked */ }
+  }
+
+  // === WEBSOCKET ===
+  function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(protocol + '//' + location.host + '/room/' + roomId);
+    ws.onopen = () => {
+      const colors = {
+        hair: document.getElementById('col-hair').value,
+        aura: document.getElementById('col-aura').value,
+        kameha: document.getElementById('col-kameha').value,
+        trail: document.getElementById('col-trail').value
+      };
+      const name = document.getElementById('lobby-name').value.trim() || 'Warrior';
+      const password = document.getElementById('lobby-password').value.trim();
+      ws.send(JSON.stringify({type: 'join', name, colors, password}));
+    };
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (data.type === 'init') {
+          myId = data.id; world = data.world || world; connected = true;
+          lobby.style.display = 'none';
+          canvas.style.display = 'block';
+          hud.style.display = 'flex';
+          stateBox.style.display = 'block';
+          leaderboard.style.display = 'block';
+          minimap.style.display = 'block';
+          settingsBtn.style.display = 'flex';
+          if (isTouchDevice) { joyZone.style.display = 'block'; actionZone.style.display = 'block'; }
+          log('Connected to ' + roomId, '#22d3ee');
+        } else if (data.type === 'state') {
+          handleStateSounds(data);
+          gameState = data;
+        } else if (data.type === 'playerList') {
+          const box = document.getElementById('lobby-players');
+          if (lobby.style.display !== 'none') {
+            box.innerHTML = '<div style="color:#fbbf24;font-weight:bold;margin-bottom:4px">В комнате:</div>' +
+              data.list.map(p => '<div><span style="width:12px;height:12px;border-radius:50%;display:inline-block;background:' + p.colors.kameha + ';border:1px solid rgba(255,255,255,0.2);margin-right:6px"></span>' + p.name + '</div>').join('');
+          }
+        } else if (data.type === 'error') {
+          log('Error: ' + data.message, '#ef4444');
+        }
+      } catch (e) { console.error(e); }
+    };
+    ws.onclose = () => { connected = false; log('Disconnected', '#ef4444'); };
+    ws.onerror = () => { log('Connection error', '#ef4444'); };
+  }
+
+  document.getElementById('start-btn').addEventListener('click', () => {
+    roomId = document.getElementById('lobby-room').value.trim() || 'room-1';
+    connect();
+  });
+
+  document.getElementById('bot-add').addEventListener('click', () => {
+    if (connected && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'botControl', action:'add'}));
+      log('+ Бот добавлен', '#22c55e');
+    } else {
+      log('Нет соединения с комнатой', '#ef4444');
+    }
+  });
+  document.getElementById('bot-remove').addEventListener('click', () => {
+    if (connected && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'botControl', action:'remove'}));
+      log('- Бот выкинут', '#f97316');
+    } else {
+      log('Нет соединения с комнатой', '#ef4444');
+    }
+  });
+
+  // === INPUT ===
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const keys = {};
+  const keyDownTimes = {};
+  let joyVector = {x: 0, y: 0};
+  let joyActive = false;
+  let joyCenter = {x: 0, y: 0};
+  let joyRadius = 60;
+  let joyKnobRadius = 25;
+  let lastDirKey = 'D';
+
+  window.addEventListener('keydown', e => {
+    const k = e.key.toUpperCase();
+    if (!keys[k]) { keys[k] = true; keyDownTimes[k] = Date.now(); if (['W','A','S','D'].includes(k)) lastDirKey = k; sendInput(); }
+  });
+  window.addEventListener('keyup', e => {
+    const k = e.key.toUpperCase();
+    keys[k] = false; delete keyDownTimes[k]; sendInput();
+  });
+
+  function sendInput() {
+    if (!connected || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type: 'input', keys, joyVector, joyActive, lastDirKey, keyDownTimes}));
+  }
+
+  // Joystick
+  let joyTouchId = null;
+  joyZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (joyTouchId !== null) return;
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier;
+    const rect = joyZone.getBoundingClientRect();
+    joyCenter = {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+    joyRadius = rect.width/2 - 10;
+    updateJoystick(t.clientX, t.clientY);
+    const now = Date.now();
+    if (now - (joyZone._lastTap || 0) < 350) {
+      keys['DASH'] = true; sendInput();
+      setTimeout(() => { keys['DASH'] = false; sendInput(); }, 50);
+    }
+    joyZone._lastTap = now;
+    keyDownTimes['JOY'] = now;
+  }, {passive: false});
+  joyZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joyTouchId) {
+        updateJoystick(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+        break;
+      }
+    }
+  }, {passive: false});
+  joyZone.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joyTouchId) {
+        joyTouchId = null; joyActive = false; joyVector = {x: 0, y: 0};
+        joyKnob.style.transform = 'translate(0px,0px)';
+        delete keyDownTimes['JOY']; sendInput(); break;
+      }
+    }
+  }, {passive: false});
+
+  function updateJoystick(cx, cy) {
+    let dx = cx - joyCenter.x, dy = cy - joyCenter.y;
+    const d = Math.hypot(dx, dy);
+    const maxDist = joyRadius - joyKnobRadius;
+    if (d > maxDist) { dx = (dx/d)*maxDist; dy = (dy/d)*maxDist; }
+    joyKnob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    joyActive = true; joyVector = {x: dx/maxDist, y: dy/maxDist};
+    if (d > 5) {
+      if (Math.abs(joyVector.x) > Math.abs(joyVector.y)) lastDirKey = joyVector.x > 0 ? 'D' : 'A';
+      else lastDirKey = joyVector.y > 0 ? 'S' : 'W';
+    }
+    sendInput();
+  }
+
+  // Action buttons
+  document.querySelectorAll('.act-btn').forEach(btn => {
+    const key = btn.dataset.key;
+    btn.addEventListener('touchstart', e => {
+      e.preventDefault(); keys[key] = true; keyDownTimes[key] = Date.now();
+      btn.style.transform = 'scale(0.9)'; btn.style.background = 'rgba(59,130,246,0.5)';
+      sendInput();
+    }, {passive: false});
+    btn.addEventListener('touchend', e => {
+      e.preventDefault(); keys[key] = false; delete keyDownTimes[key];
+      btn.style.transform = 'scale(1)'; btn.style.background = 'rgba(30,41,59,0.7)';
+      sendInput();
+    }, {passive: false});
+  });
+
+  canvas.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
+  canvas.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
+
+  // === SOUND STATE TRACKING ===
+  const prevStates = new Map();
+  const chargeTickCounters = new Map();
+
+  function handleStateSounds(data) {
+    if (!data.entities) return;
+    for (const e of data.entities) {
+      const prev = prevStates.get(e.id);
+      if (!prev) { prevStates.set(e.id, {state:e.state, turbo:e.turbo, tick:localTick}); continue; }
+
+      if (prev.state === 'KAMEHAMEHA_CHARGE' && e.state === 'SUPER_ATTACK') {
+        playSound('kamehamehaFire');
+      }
+      if (prev.state !== 'KI_BLAST' && e.state === 'KI_BLAST') {
+        playSound('kiBlast');
+      }
+      if (prev.state === 'MELEE_CHARGE' && e.state === 'MELEE') {
+        playSound('meleeHit');
+      }
+      if (!prev.turbo && e.turbo) {
+        playSound('turbo');
+      }
+
+      let ct = chargeTickCounters.get(e.id) || 0;
+      if (e.state === 'KI_CHARGE') {
+        ct++; if (ct >= 18) { playSound('kiCharge'); ct = 0; }
+      } else if (e.state === 'KAMEHAMEHA_CHARGE') {
+        ct++; if (ct >= 14) { playSound('kamehamehaCharge'); ct = 0; }
+      } else if (e.state === 'MELEE_CHARGE') {
+        ct++; if (ct >= 14) { playSound('meleeCharge'); ct = 0; }
+      } else {
+        ct = 0;
+      }
+      chargeTickCounters.set(e.id, ct);
+
+      prevStates.set(e.id, {state:e.state, turbo:e.turbo, tick:localTick});
+    }
+    const ids = new Set(data.entities.map(e=>e.id));
+    for (const id of prevStates.keys()) { if (!ids.has(id)) { prevStates.delete(id); chargeTickCounters.delete(id); } }
+  }
+
+  // === DRAW ===
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return {r,g,b};
+  }
+  function rgba(hex, a) {
+    const c = hexToRgb(hex);
+    return `rgba(${c.r},${c.g},${c.b},${a})`;
+  }
+
+  function drawEntity(ctx, e, isMe, tick) {
+    const x = e.x, y = e.y;
+    const colors = e.colors || {hair:'#fbbf24', aura:'#3b82f6', kameha:'#3b82f6', trail:'#22d3ee'};
+    const angle = Math.atan2(e.facing.y, e.facing.x);
+
+    if (e.trail && e.trail.length) {
+      e.trail.forEach((t, i) => {
+        ctx.globalAlpha = (i / e.trail.length) * 0.4;
+        if (e.turbo) {
+          ctx.fillStyle = colors.trail;
+          const a = i > 0 ? Math.atan2(t.y - e.trail[i-1].y, t.x - e.trail[i-1].x) : Math.atan2(e.facing.y, e.facing.x);
+          ctx.save();
+          ctx.translate(t.x, t.y);
+          ctx.rotate(a);
+          ctx.beginPath();
+          ctx.moveTo(0, -7);
+          ctx.lineTo(6, 6);
+          ctx.lineTo(-6, 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.fillStyle = colors.trail;
+          ctx.beginPath(); ctx.arc(t.x, t.y, 10, 0, Math.PI*2); ctx.fill();
+        }
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    if (e.turbo) {
+      ctx.save();
+      ctx.translate(x, y);
+      for (let i = 0; i < 5; i++) {
+        const a = tick * 0.3 + (i / 5) * Math.PI * 2;
+        const r = 30 + Math.sin(tick * 0.15 + i * 2) * 6;
+        ctx.save();
+        ctx.translate(Math.cos(a) * r, Math.sin(a) * r);
+        ctx.rotate(a + Math.PI / 2);
+        ctx.fillStyle = colors.trail;
+        ctx.globalAlpha = 0.6 + Math.sin(tick * 0.2 + i) * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(0, -6);
+        ctx.lineTo(5, 5);
+        ctx.lineTo(-5, 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    if (e.state === 'KI_CHARGE' || e.state === 'KAMEHAMEHA_CHARGE' || e.state === 'MELEE_CHARGE') {
+      let auraColor = colors.aura;
+      let baseSize = 22;
+      if (e.state === 'MELEE_CHARGE') {
+        auraColor = colors.hair;
+        const ratio = Math.min(1, (e.meleeCharge || 0) / 80);
+        baseSize = 25 + ratio * 55;
+        ctx.strokeStyle = rgba(auraColor, 0.2 + ratio * 0.5);
+        ctx.lineWidth = 2 + ratio * 4;
+        ctx.beginPath(); ctx.arc(x, y, baseSize + Math.sin(tick*0.4)*5, 0, Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = rgba(auraColor, 0.15 + ratio * 0.35);
+        ctx.lineWidth = 1 + ratio * 2;
+        ctx.beginPath(); ctx.arc(x, y, baseSize * 0.65 + Math.sin(tick*0.4)*2.5, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = rgba(auraColor, 0.08 + ratio * 0.15);
+        ctx.beginPath(); ctx.arc(x, y, baseSize * 0.5, 0, Math.PI*2); ctx.fill();
+        const fl = Math.hypot(e.facing.x, e.facing.y);
+        const fx = fl > 0.001 ? e.facing.x / fl : 1;
+        const fy = fl > 0.001 ? e.facing.y / fl : 0;
+        const hx = x + fx * 22, hy = y + fy * 22;
+        ctx.shadowColor = colors.hair;
+        ctx.shadowBlur = 15 + ratio * 25;
+        ctx.fillStyle = rgba(colors.hair, 0.4 + ratio * 0.6);
+        ctx.beginPath(); ctx.arc(hx, hy, 6 + ratio * 14, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(hx, hy, 3 + ratio * 5, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        const pulse = baseSize + Math.sin(tick * 0.12) * 8 + (e.kamehamehaCharge || 0) * 0.18;
+        ctx.fillStyle = rgba(auraColor, 0.12);
+        ctx.beginPath(); ctx.arc(x, y, pulse + 18, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = rgba(auraColor, 0.35);
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, pulse, 0, Math.PI*2); ctx.stroke();
+      }
+    }
+
+    if (e.state === 'KAMEHAMEHA_CHARGE') {
+      const ratio = (e.kamehamehaCharge || 0) / 150;
+      const bx = x + Math.cos(angle) * 38;
+      const by = y + Math.sin(angle) * 38;
+      const sz = 12 + ratio * 24;
+      ctx.shadowColor = colors.kameha;
+      ctx.shadowBlur = 25 + ratio * 25;
+      ctx.fillStyle = rgba(colors.kameha, 0.85);
+      ctx.beginPath(); ctx.arc(bx, by, sz, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(bx, by, sz * 0.35, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    if (e.state === 'GRAB' && e.grabTarget) {
+      const or = e.grabOrbitRadius || 50;
+      const sa = e.spinAngle || 0;
+      ctx.strokeStyle = 'rgba(168,85,247,0.5)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.arc(x, y, or, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(168,85,247,0.25)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const a = sa - i * 0.4;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a)*(or-8), y + Math.sin(a)*(or-8));
+        ctx.lineTo(x + Math.cos(a)*(or+8), y + Math.sin(a)*(or+8));
+        ctx.stroke();
+      }
+      const target = gameState.entities.find(en => en.id === e.grabTarget);
+      if (target) {
+        ctx.strokeStyle = 'rgba(216,180,254,0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(target.x, target.y); ctx.stroke();
+      }
+    }
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    if (e.invincible > 0 && Math.floor(tick/3)%2===0) ctx.globalAlpha = 0.4;
+    if (e.hitFlash > 0) ctx.globalAlpha = 0.5;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(0, 6, 14, 10, 0, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath(); ctx.ellipse(0, 0, 16, 14, 0, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = colors.hair;
+    ctx.beginPath(); ctx.arc(6, -2, 9, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(10, -8); ctx.lineTo(18, -14); ctx.lineTo(14, -4);
+    ctx.lineTo(22, -6); ctx.lineTo(16, 0);
+    ctx.lineTo(20, 6); ctx.lineTo(12, 4);
+    ctx.lineTo(14, 12); ctx.lineTo(8, 6);
+    ctx.closePath(); ctx.fill();
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(10, -4, 4, 3);
+
+    ctx.fillStyle = colors.aura;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(-4,-6); ctx.lineTo(4,-6); ctx.lineTo(0,6); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = colors.hair;
+    if (e.state === 'MELEE' || e.state === 'MELEE_CHARGE') {
+      ctx.fillRect(14, -6, 14, 5); ctx.fillRect(14, 1, 14, 5);
+    } else if (e.state === 'KI_CHARGE' || e.state === 'KAMEHAMEHA_CHARGE') {
+      ctx.fillRect(-8, -10, 6, 5); ctx.fillRect(-8, 5, 6, 5);
+    } else {
+      ctx.fillRect(-2, -14, 5, 6); ctx.fillRect(-2, 8, 5, 6);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x - 26, y - 42, 52, 5);
+    const hpRatio = Math.max(0, e.hp / e.maxHp);
+    ctx.fillStyle = hpRatio > 0.3 ? '#ef4444' : '#f87171';
+    ctx.fillRect(x - 26, y - 42, 52 * hpRatio, 5);
+
+    ctx.fillStyle = isMe ? '#fbbf24' : '#e2e8f0';
+    ctx.font = 'bold 10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText((e.isBot ? '🤖 ' : '') + (e.name || '???'), x, y - 46);
+  }
+
+  function drawProjectile(ctx, p) {
+    ctx.shadowColor = p.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.4, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function drawKamehameha(ctx, e) {
+    ctx.save();
+    ctx.globalAlpha = e.timer / 50;
+    ctx.translate(e.x, e.y);
+    ctx.rotate(e.angle);
+    ctx.shadowColor = e.color;
+    ctx.shadowBlur = 25 + (e.thickness - 25);
+    ctx.fillStyle = rgba(e.color, 0.55);
+    ctx.fillRect(0, -e.thickness/2, e.length, e.thickness);
+    ctx.fillStyle = rgba(e.color, 0.9);
+    ctx.fillRect(0, -e.thickness*0.15, e.length, e.thickness*0.3);
+    ctx.restore();
+  }
+
+  // === HUD ===
+  function updateHUD() {
+    if (!gameState) return;
+    const me = gameState.entities.find(p => p.id === myId);
+    if (!me) return;
+    hpFill.style.width = (me.hp / me.maxHp * 100) + '%';
+    kiFill.style.width = (me.ki / me.maxKi * 100) + '%';
+    hpText.textContent = Math.ceil(me.hp) + '/' + me.maxHp;
+    kiText.textContent = Math.ceil(me.ki) + '/' + me.maxKi;
+    stateText.textContent = me.state;
+    levelText.textContent = me.level;
+
+    const expRatio = Math.min(1, me.exp / me.expToNext);
+    expFill.style.width = (expRatio * 100) + '%';
+    expText.textContent = Math.floor(me.exp) + '/' + me.expToNext;
+
+    if (me.state === 'KAMEHAMEHA_CHARGE') {
+      const ratio = Math.min(1, (me.kamehamehaCharge || 0) / 150);
+      chargeBar.style.display = 'block'; chargeLabel.style.display = 'block';
+      chargeFill.style.width = (ratio * 100) + '%';
+      chargeFill.style.background = me.colors.kameha;
+      chargeLabel.style.color = me.colors.kameha;
+      chargeLabel.textContent = 'KAMEHAMEHA ' + Math.floor(ratio * 100) + '%';
+    } else if (me.state === 'MELEE_CHARGE') {
+      const ratio = Math.min(1, (me.meleeCharge || 0) / 80);
+      chargeBar.style.display = 'block'; chargeLabel.style.display = 'block';
+      chargeFill.style.width = (ratio * 100) + '%';
+      chargeFill.style.background = me.colors.hair;
+      chargeLabel.style.color = me.colors.hair;
+      chargeLabel.textContent = 'MELEE CHARGE ' + Math.floor(ratio * 100) + '%';
+    } else {
+      chargeBar.style.display = 'none'; chargeLabel.style.display = 'none';
+    }
+
+    const all = gameState.entities.filter(e => e.hp > 0).sort((a,b) => b.level - a.level || b.hp - a.hp);
+    lbBody.innerHTML = all.slice(0, 8).map(e => {
+      const isMe = e.id === myId;
+      return '<div class="lb-row ' + (isMe ? 'me' : '') + '"><span>' + (e.isBot ? '🤖' : '👤') + ' ' + e.name + '</span><span>Lv.' + e.level + '</span></div>';
+    }).join('');
+  }
+
+  // === MAIN LOOP ===
+  function draw() {
+    if (!gameState) return;
+    const me = gameState.entities.find(p => p.id === myId);
+    if (!me) return;
+    localTick++;
+
+    const targetCamX = me.x - W/2;
+    const targetCamY = me.y - H/2;
+    camX += (targetCamX - camX) * 0.12;
+    camY += (targetCamY - camY) * 0.12;
+    const cx = Math.max(0, Math.min(world.w - W, camX));
+    const cy = Math.max(0, Math.min(world.h - H, camY));
+
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(-cx, -cy);
+
+    ctx.strokeStyle = 'rgba(59,130,246,0.05)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < world.w; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, world.h); ctx.stroke(); }
+    for (let y = 0; y < world.h; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(world.w, y); ctx.stroke(); }
+
+    ctx.strokeStyle = 'rgba(59,130,246,0.08)';
+    ctx.beginPath(); ctx.arc(world.w/2, world.h/2, 200, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(world.w/2, world.h/2, 400, 0, Math.PI*2); ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(239,68,68,0.25)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(0, 0, world.w, world.h);
+
+    gameState.effects.forEach(e => { if (e.type === 'kamehameha') drawKamehameha(ctx, e); });
+    gameState.projectiles.forEach(p => drawProjectile(ctx, p));
+
+    gameState.particles.forEach(p => {
+      ctx.globalAlpha = Math.max(0, p.life / 20);
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    gameState.entities.filter(e => e.isBot).forEach(e => drawEntity(ctx, e, e.id === myId, localTick));
+    gameState.entities.filter(e => !e.isBot).forEach(e => drawEntity(ctx, e, e.id === myId, localTick));
+
+    ctx.strokeStyle = 'rgba(34,211,238,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(me.x, me.y); ctx.lineTo(me.x + me.facing.x * 30, me.y + me.facing.y * 30); ctx.stroke();
+
+    ctx.restore();
+
+    const mmW = 120, mmH = 90;
+    minimap.width = mmW; minimap.height = mmH;
+    mmCtx.fillStyle = 'rgba(5,5,16,0.9)';
+    mmCtx.fillRect(0, 0, mmW, mmH);
+    const sx = mmW / world.w, sy = mmH / world.h;
+    mmCtx.fillStyle = 'rgba(59,130,246,0.3)';
+    mmCtx.fillRect(cx * sx, cy * sy, W * sx, H * sy);
+    gameState.entities.forEach(e => {
+      mmCtx.fillStyle = e.isBot ? '#a855f7' : (e.id === myId ? '#fbbf24' : '#22d3ee');
+      mmCtx.beginPath(); mmCtx.arc(e.x * sx, e.y * sy, e.id === myId ? 3 : 2, 0, Math.PI*2); mmCtx.fill();
+    });
+
+    updateHUD();
+  }
+
+  function loop() {
+    try { draw(); } catch (err) { console.error('draw error:', err); }
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  // Settings
+  settingsBtn.addEventListener('click', () => {
+    settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
+  });
+  toggleLog.addEventListener('click', () => {
+    const showing = logEl.style.display !== 'none';
+    logEl.style.display = showing ? 'none' : 'block';
+    toggleLog.textContent = showing ? 'OFF' : 'ON';
+    toggleLog.classList.toggle('active', !showing);
+  });
+  volSlider.addEventListener('input', () => {
+    masterVolume = parseInt(volSlider.value) / 100;
+  });
+})();
+</script>
+</body>
+</html>
