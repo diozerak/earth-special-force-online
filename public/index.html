@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Earth Special Force: Online</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  html,body{background:#050510;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;width:100%;height:100%;touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  #lobby{position:absolute;inset:0;z-index:100;background:linear-gradient(135deg,#050510 0%,#0f0f2e 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:16px}
+  #lobby h1{font-size:28px;color:#fbbf24;text-shadow:0 0 20px rgba(251,191,36,0.4);letter-spacing:2px}
+  .lobby-box{background:rgba(15,23,42,0.9);border:1px solid #1e3a5f;border-radius:14px;padding:20px;width:100%;max-width:420px;display:flex;flex-direction:column;gap:12px}
+  .lobby-box label{font-size:12px;color:#94a3b8;font-weight:600}
+  .lobby-box input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:14px;outline:none}
+  .lobby-box input:focus{border-color:#3b82f6}
+  .color-row{display:flex;gap:10px;align-items:center}
+  .color-row input[type="color"]{width:44px;height:36px;border:none;border-radius:6px;padding:0;background:none;cursor:pointer}
+  .color-row span{font-size:13px;color:#cbd5e1}
+  #start-btn{background:linear-gradient(90deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:800;cursor:pointer;letter-spacing:1px;box-shadow:0 4px 20px rgba(59,130,246,0.3)}
+  #start-btn:active{transform:scale(0.97)}
+  #lobby-players{max-height:120px;overflow-y:auto;font-size:12px;color:#94a3b8;border-top:1px solid #1e3a5f;padding-top:10px;margin-top:4px}
+  #gameCanvas{position:absolute;top:0;left:0;width:100%;height:100%;background:#0a0a1a;display:none}
+  #hud{position:absolute;top:0;left:0;right:0;padding:8px 12px;display:flex;gap:12px;align-items:center;pointer-events:none;z-index:10;display:none}
+  .bar-group{flex:1;max-width:160px}
+  .bar-label{display:flex;justify-content:space-between;font-size:10px;font-weight:bold;margin-bottom:2px}
+  .bar-track{background:#1a1a2e;height:10px;border-radius:5px;overflow:hidden;border:1px solid #1e3a5f}
+  .bar-fill{height:100%;transition:width 0.15s}
+  #hp-fill{background:linear-gradient(90deg,#ef4444,#f87171)}
+  #ki-fill{background:linear-gradient(90deg,#3b82f6,#60a5fa)}
+  #exp-fill{background:linear-gradient(90deg,#22c55e,#4ade80)}
+  #level-box{width:48px;text-align:center}
+  #level-box .lbl{color:#fbbf24;font-size:9px;font-weight:bold}
+  #level-box .val{color:#fbbf24;font-size:16px;font-weight:900}
+  #state-box{position:absolute;top:96px;left:12px;font-size:11px;pointer-events:none;z-index:10;display:none}
+  #state-text{color:#22d3ee;font-weight:bold;font-family:monospace}
+  #buffs{position:absolute;top:70px;left:12px;display:flex;gap:6px;z-index:10;pointer-events:none}
+  .buff-chip{background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;padding:3px 7px;font-size:11px;font-weight:bold;display:none}
+  #charge-bar{position:absolute;top:72px;left:50%;transform:translateX(-50%);width:200px;height:6px;background:rgba(0,0,0,0.6);border-radius:3px;overflow:hidden;display:none;z-index:10;border:1px solid rgba(59,130,246,0.5)}
+  #charge-fill{height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa,#a855f7);transition:width 0.05s}
+  #charge-label{position:absolute;top:80px;left:50%;transform:translateX(-50%);color:#60a5fa;font-size:10px;font-weight:bold;display:none;z-index:10;text-shadow:0 0 8px rgba(59,130,246,0.8)}
+  #leaderboard{position:absolute;top:52px;right:12px;background:rgba(5,5,16,0.85);border:1px solid #1e3a5f;border-radius:8px;padding:8px 10px;z-index:10;display:none;font-size:11px;min-width:150px;pointer-events:none}
+  #leaderboard h4{color:#fbbf24;margin-bottom:6px;font-size:11px}
+  .lb-row{display:flex;justify-content:space-between;gap:10px;margin:2px 0;color:#cbd5e1}
+  .lb-row.me{color:#fbbf24;font-weight:bold}
+  #boss-progress{color:#ef4444;font-weight:bold;margin-top:6px;padding-top:6px;border-top:1px solid #1e3a5f;font-size:10px}
+  #boss-bar-wrap{position:absolute;top:96px;left:50%;transform:translateX(-50%);width:min(420px,70vw);z-index:10;display:none;pointer-events:none;text-align:center}
+  #boss-bar-name{font-size:12px;font-weight:900;color:#ef4444;letter-spacing:2px;text-shadow:0 0 12px rgba(239,68,68,0.8);margin-bottom:3px}
+  #boss-bar-track{background:rgba(0,0,0,0.7);height:12px;border-radius:6px;overflow:hidden;border:1px solid rgba(239,68,68,0.6)}
+  #boss-bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#7f1d1d,#ef4444,#f97316);transition:width 0.2s}
+  #event-banner{position:absolute;top:24%;left:50%;transform:translateX(-50%);font-size:clamp(20px,5vw,34px);font-weight:900;letter-spacing:2px;z-index:40;pointer-events:none;opacity:0;transition:opacity 0.4s;text-align:center;text-shadow:0 0 24px currentColor}
+  #minimap{position:absolute;bottom:210px;right:8px;width:120px;height:90px;background:rgba(5,5,16,0.85);border:1px solid #1e3a5f;border-radius:8px;z-index:10;display:none}
+  #joystick-zone{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:calc(12px + env(safe-area-inset-left,0px));width:140px;height:140px;z-index:20;display:none}
+  #joystick-base{position:absolute;width:120px;height:120px;border:3px solid rgba(59,130,246,0.3);border-radius:50%;background:rgba(15,23,42,0.5);top:10px;left:10px}
+  #joystick-knob{position:absolute;width:50px;height:50px;background:rgba(59,130,246,0.6);border:2px solid rgba(147,197,253,0.8);border-radius:50%;top:45px;left:45px;box-shadow:0 0 15px rgba(59,130,246,0.4)}
+  #action-zone{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom,0px));right:calc(10px + env(safe-area-inset-right,0px));z-index:25;display:none;width:260px;height:180px}
+  .act-btn{position:absolute;width:56px;height:56px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);touch-action:none!important;-webkit-user-select:none!important;user-select:none!important;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff;background:rgba(30,41,59,0.7);backdrop-filter:blur(4px);box-shadow:0 4px 12px rgba(0,0,0,0.4);transition:transform 0.05s,background 0.1s}
+  .act-btn:active{transform:scale(0.92);background:rgba(59,130,246,0.5)}
+  #btn-j{bottom:110px;right:180px;border-color:rgba(59,130,246,0.5);color:#60a5fa}
+  #btn-k{bottom:110px;right:120px;border-color:rgba(251,191,36,0.5);color:#fbbf24}
+  #btn-u{bottom:110px;right:60px;border-color:rgba(168,85,247,0.5);color:#c084fc}
+  #btn-o{bottom:110px;right:0px;border-color:rgba(249,115,22,0.5);color:#fb923c;font-size:16px}
+  #btn-l{bottom:40px;right:140px;border-color:rgba(239,68,68,0.5);color:#f87171}
+  #btn-h{bottom:40px;right:70px;border-color:rgba(34,211,238,0.5);color:#22d3ee;font-size:14px}
+  #btn-i{bottom:40px;right:0px;width:48px;height:48px;font-size:11px;border-color:rgba(34,197,94,0.4);color:#4ade80}
+  #settings-btn{position:absolute;top:8px;right:8px;width:36px;height:36px;z-index:30;background:rgba(30,41,59,0.8);border:1px solid #334155;border-radius:8px;color:#94a3b8;font-size:18px;display:none;align-items:center;justify-content:center;cursor:pointer}
+  #settings-panel{position:absolute;top:50px;right:8px;width:220px;background:rgba(10,10,26,0.95);border:1px solid #1e3a5f;border-radius:10px;padding:12px;z-index:30;display:none;font-size:12px}
+  #settings-panel h3{color:#fbbf24;margin-bottom:8px;font-size:13px}
+  .setting-row{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+  .setting-row label{color:#94a3b8}
+  .toggle-btn{background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer}
+  .toggle-btn.active{background:#3b82f6;border-color:#3b82f6}
+  .bot-row{display:flex;gap:6px;margin:8px 0;padding-top:8px;border-top:1px solid #1e3a5f}
+  .bot-row button{flex:1;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px;font-size:11px;cursor:pointer;font-weight:600}
+  .bot-row button:active{transform:scale(0.95)}
+  .vol-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .vol-row label{color:#94a3b8;font-size:11px;flex:1}
+  .vol-row input[type=range]{flex:2}
+  #log{position:absolute;bottom:8px;left:8px;width:320px;max-height:100px;overflow-y:auto;background:rgba(5,5,16,0.7);color:#64748b;font-size:10px;font-family:monospace;padding:6px 8px;border-radius:6px;pointer-events:none;z-index:5;display:none}
+  #log div{margin-bottom:1px}
+  #desktop-hint{position:absolute;bottom:8px;right:8px;background:rgba(10,10,26,0.9);border:1px solid #1e3a5f;border-radius:8px;padding:10px 14px;font-size:11px;color:#94a3b8;z-index:10;line-height:1.6;display:none}
+  #desktop-hint kbd{background:#1e293b;color:#e2e8f0;padding:1px 5px;border-radius:3px;font-family:monospace;font-size:10px;border:1px solid #334155}
+  @media (max-width: 768px) {
+    #joystick-zone{display:block !important}
+    #action-zone{display:block !important}
+    #desktop-hint{display:none !important}
+  }
+  @media (min-width: 769px) {
+    #joystick-zone{display:none !important}
+    #action-zone{display:none !important}
+    #log{display:block !important}
+    #desktop-hint{display:block !important}
+  }
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<div id="lobby">
+  <h1>⚡ EARTH SPECIAL FORCE</h1>
+  <div class="lobby-box">
+    <label>Fighter name</label>
+    <input id="lobby-name" placeholder="Your name" maxlength="14" value="Warrior">
+    <label>Password (saves your progress)</label>
+    <input id="lobby-password" type="password" placeholder="Password" maxlength="20" value="">
+    <label>Room ID</label>
+    <input id="lobby-room" placeholder="room-1" value="room-1">
+    <label>Customization</label>
+    <div class="color-row"><input type="color" id="col-hair" value="#fbbf24"><span>Hair</span></div>
+    <div class="color-row"><input type="color" id="col-aura" value="#3b82f6"><span>Aura</span></div>
+    <div class="color-row"><input type="color" id="col-kameha" value="#3b82f6"><span>Ki / Kamehameha</span></div>
+    <div class="color-row"><input type="color" id="col-trail" value="#22d3ee"><span>Trail</span></div>
+    <button id="start-btn">FIGHT ⚔</button>
+    <div style="color:#64748b;font-size:10px;line-height:1.5;margin-top:4px">
+      <b>PC:</b> WASD — move | J — ki blast | K(hold) — punch / grab | L — ki slash | H — teleport | O — turbo<br>
+      <b>U(hold)</b> — Kamehameha | <b>I(hold)</b> — Ki charge<br>
+      Kill bots to make them drop power-ups. Every 10 kills — a BOSS appears!
+    </div>
+    <div id="lobby-players"></div>
+  </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+  <div class="bar-group">
+    <div class="bar-label" style="color:#ef4444"><span>HP</span><span id="hpText">100/100</span></div>
+    <div class="bar-track"><div id="hp-fill" class="bar-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-group">
+    <div class="bar-label" style="color:#3b82f6"><span>KI</span><span id="kiText">100/100</span></div>
+    <div class="bar-track"><div id="ki-fill" class="bar-fill" style="width:100%"></div></div>
+  </div>
+  <div class="bar-group">
+    <div class="bar-label" style="color:#22c55e"><span>EXP</span><span id="expText">0/100</span></div>
+    <div class="bar-track"><div id="exp-fill" class="bar-fill" style="width:0%"></div></div>
+  </div>
+  <div id="level-box"><div class="lbl">LVL</div><div class="val" id="levelText">1</div></div>
+</div>
+
+<div id="buffs">
+  <span class="buff-chip" id="buff-power" style="color:#f87171">💪 <span id="buff-power-t"></span></span>
+  <span class="buff-chip" id="buff-speed" style="color:#fbbf24">👟 <span id="buff-speed-t"></span></span>
+  <span class="buff-chip" id="buff-shield" style="color:#93c5fd">🛡 <span id="buff-shield-t"></span></span>
+</div>
+
+<div id="state-box">STATE: <span id="state-text">IDLE</span></div>
+
+<div id="charge-bar"><div id="charge-fill"></div></div>
+<div id="charge-label">CHARGE</div>
+
+<div id="leaderboard">
+  <h4>🏆 Leaderboard</h4>
+  <div id="lb-body"></div>
+  <div id="boss-progress">☠ Bots to boss: 0/10</div>
+</div>
+
+<div id="boss-bar-wrap">
+  <div id="boss-bar-name">BOSS</div>
+  <div id="boss-bar-track"><div id="boss-bar-fill"></div></div>
+</div>
+
+<div id="event-banner"></div>
+
+<canvas id="minimap"></canvas>
+
+<div id="settings-btn">⚙</div>
+<div id="settings-panel">
+  <h3>⚙ Settings</h3>
+  <div class="setting-row"><label>Log</label><button class="toggle-btn" id="toggle-log">OFF</button></div>
+  <div class="vol-row"><label>🔊 Sound</label><input type="range" id="vol-slider" min="0" max="100" value="60"></div>
+  <div class="bot-row">
+    <button id="bot-add">+ 🤖 Bot</button>
+    <button id="bot-remove">- 🤖 Bot</button>
+  </div>
+  <div style="margin-top:8px;color:#64748b;font-size:10px;line-height:1.5">
+    <b>Mobile:</b> Stick — move, double tap — dash, hold — swoop.<br>
+    <b>U</b> — Kamehameha charge (release to fire). <b>K</b> — charged punch (grabs enemy on contact).<br>
+    <b>I</b> — Ki charge. <b>L</b> — ki slash (crescent wave). <b>O</b> — turbo.<br>
+    Walk over glowing orbs to pick up power-ups!
+  </div>
+</div>
+
+<div id="joystick-zone">
+  <div id="joystick-base"></div>
+  <div id="joystick-knob"></div>
+</div>
+
+<div id="action-zone">
+  <div class="act-btn" id="btn-j" data-key="J">J</div>
+  <div class="act-btn" id="btn-k" data-key="K">K</div>
+  <div class="act-btn" id="btn-u" data-key="U">U</div>
+  <div class="act-btn" id="btn-o" data-key="O">O</div>
+  <div class="act-btn" id="btn-l" data-key="L">L</div>
+  <div class="act-btn" id="btn-h" data-key="H">H</div>
+  <div class="act-btn" id="btn-i" data-key="I">I</div>
+</div>
+
+<div id="log">
+  <div style="color:#22d3ee">> Earth Special Force: Online loaded</div>
+</div>
+
+<div id="desktop-hint">
+  <b>Controls:</b><br>
+  <kbd>WASD</kbd> Move / Double tap = dash / Hold = swoop<br>
+  <kbd>J</kbd> Ki Blast &nbsp; <kbd>K(hold)</kbd> Charged punch / grab &nbsp; <kbd>L</kbd> Ki slash &nbsp; <kbd>H</kbd> Teleport &nbsp; <kbd>O</kbd> Turbo<br>
+  <kbd>U(hold)</kbd> Kamehameha &nbsp; <kbd>I(hold)</kbd> Ki charge<br>
+  Release U / K to unleash the charged attack. Grab glowing orbs for power-ups!
+</div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
