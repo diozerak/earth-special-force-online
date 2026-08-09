@@ -1,0 +1,2631 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESF — Character editor (fragments)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a1a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;height:100vh;overflow:hidden}
+  #stage{flex:1;display:flex;align-items:center;justify-content:center;padding:16px;min-width:0}
+  canvas{background:#0a0a1a;border:1px solid #1e3a5f;border-radius:12px;max-width:100%;max-height:100%}
+  #panel{width:340px;background:#0f0f22;border-left:1px solid #1e3a5f;padding:14px;overflow-y:auto}
+  #panel h2{color:#fbbf24;font-size:14px;margin-bottom:10px}
+  .sec{border-top:1px solid #1e3a5f;margin-top:10px;padding-top:8px}
+  .sec h3{color:#22d3ee;font-size:11px;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}
+  .row{margin-bottom:8px}
+  .row label{display:block;font-size:11px;color:#94a3b8;margin-bottom:3px;font-weight:600}
+  select,input[type=range]{width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px;font-size:12px}
+  .colors{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .colors div{display:flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8}
+  input[type=color]{width:30px;height:24px;border:none;border-radius:4px;padding:0;background:none;cursor:pointer}
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}
+  .checks label{display:flex;align-items:center;gap:5px;font-size:11px;color:#cbd5e1;cursor:pointer}
+  button{width:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border:none;color:#fff;border-radius:8px;padding:8px;font-weight:700;cursor:pointer;font-size:12px;margin-top:6px}
+  button.ghost{background:#1e293b;border:1px solid #334155}
+  .val{float:right;color:#fbbf24}
+  #src-wrap{display:none;position:fixed;inset:3% 5%;background:#050510f5;border:1px solid #1e3a5f;border-radius:12px;z-index:50;padding:14px;overflow:auto}
+  #src-wrap pre{font-family:ui-monospace,monospace;font-size:11px;line-height:1.45;color:#a5f3fc;white-space:pre-wrap}
+  #src-wrap h3{color:#fbbf24;font-size:13px;margin-bottom:8px}
+  #import-ta{width:100%;height:90px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-family:monospace;font-size:11px;padding:6px;margin-top:6px}
+</style>
+</head>
+<body>
+
+<!-- ===================== РЕНДЕР (переносится в игру) ===================== -->
+<script type="text/plain" id="draw-source">
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return { r, g, b };
+}
+function rgba(hex, a) {
+  const c = hexToRgb(hex);
+  return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + a + ')';
+}
+
+// ===== ПОЗЫ: возвращает геометрию рук/кистей для стейта =====
+// Результат: { armL:[x1,y1,x2,y2], armR:[...], handL:{x,y,ha,m}, handR:{...}, sword:bool }
+function computePoseRaw(e, o) {
+  const gap = (o.gap !== undefined ? o.gap : 12) / 2;
+  switch (e.state) {
+    case 'MELEE_CHARGE':
+      if (e.grabTarget) return {
+        armL: [5, -7, 27, -7], armR: null,
+        handL: { x: 29, y: -7, ha: 0, m: -1 }, handR: { x: 4, y: 11, ha: 0.5, m: 1 }, sword: false
+      };
+      return {
+        armL: null, armR: null,
+        handL: { x: 4, y: -12, ha: 0.5, m: -1 }, handR: { x: 4, y: 11, ha: -0.5, m: 1 }, sword: false
+      };
+    case 'MELEE':
+      return {
+        armL: null, armR: [5, 6, 27, 6],
+        handL: { x: 4, y: -12, ha: 0.5, m: -1 }, handR: { x: 29, y: 6, ha: 0, m: 1 }, sword: false
+      };
+    case 'KI_CHARGE':
+      return {
+        armL: [-9, -8, -3, -7], armR: [-9, 7, -3, 8],
+        handL: { x: -4, y: -8, ha: -2.2, m: -1 }, handR: { x: -4, y: 7, ha: 2.2, m: 1 }, sword: false
+      };
+    case 'KAMEHAMEHA_CHARGE': {
+      const r = { armL: null, armR: null, handL: null, handR: null, sword: false };
+      if (o.kamehaHands === 'right' || o.kamehaHands === 'both') { r.armR = [2, 9, 12, 12]; r.handR = { x: 15, y: 13, ha: 0, m: 1 }; }
+      if (o.kamehaHands === 'left' || o.kamehaHands === 'both') { r.armL = [2, -9, 12, -12]; r.handL = { x: 15, y: -13, ha: 0, m: -1 }; }
+      return r;
+    }
+    case 'SUPER_ATTACK':
+      if (o.twoPalms) return {
+        armL: [4, -9, 23, -2], armR: [4, 8, 23, 2],
+        handL: { x: 26.5, y: -gap, ha: 0, m: -1 }, handR: { x: 26.5, y: gap, ha: 0, m: 1 }, sword: false
+      };
+      return null; // обычный SUPER_ATTACK — поза по умолчанию
+    case 'KI_BEAM_CHARGE':
+    case 'KI_BLAST': {
+      const bs = o.beamSide === 'left' ? -1 : 1;
+      if (bs === 1) return {
+        armL: null, armR: [5, 4, 25, 4],
+        handL: { x: 3, y: -12, ha: 0.5, m: -1 }, handR: { x: 26, y: 4, ha: 0, m: 1 }, sword: false
+      };
+      return {
+        armL: [5, -6, 25, -6], armR: null,
+        handL: { x: 26, y: -4, ha: 0, m: -1 }, handR: { x: 4, y: 11, ha: -0.5, m: 1 }, sword: false
+      };
+    }
+    case 'SWORD':
+      return {
+        armL: null, armR: [5, 4, 25, 4],
+        handL: { x: 3, y: -12, ha: 0.5, m: -1 }, handR: { x: 26, y: 4, ha: 0, m: 1 }, sword: true
+      };
+    case 'SLASH':
+      return {
+        armL: [14, 3, 14, -12], armR: null,
+        handL: { x: 14.5, y: -14, ha: -Math.PI / 2, m: -1 }, handR: { x: 3, y: 11, ha: -0.5, m: 1 }, sword: false
+      };
+    default:
+      return {
+        armL: [-1, -13, 2, -9], armR: [-1, 9, 2, 13],
+        handL: { x: 3.5, y: -12, ha: -Math.PI / 2, m: -1 }, handR: { x: 3.5, y: 11, ha: Math.PI / 2, m: 1 }, sword: false
+      };
+  }
+}
+
+function computePose(e, o) {
+  return computePoseRaw(e, o);
+}
+
+function drawEntity(ctx, e, isMe, tick) {
+  const P = PARAMS;
+  const x = e.x, y = e.y;
+  const colors = e.colors || P.colors;
+  const angle = Math.atan2(e.facing.y, e.facing.x);
+  const bossScale = e.isBoss ? 1.9 : 1;
+  const D = Math.PI / 180;
+
+  // === ТРЕЙЛ / ТУРБО / АУРЫ БОССА / БАФФЫ (без изменений) ===
+  if (e.trail && e.trail.length) {
+    e.trail.forEach((t, i) => {
+      ctx.globalAlpha = (i / e.trail.length) * 0.4;
+      if (e.turbo) {
+        ctx.fillStyle = colors.trail;
+        const a = i > 0 ? Math.atan2(t.y - e.trail[i - 1].y, t.x - e.trail[i - 1].x) : Math.atan2(e.facing.y, e.facing.x);
+        ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(a);
+        ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, 6); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = colors.trail;
+        ctx.beginPath(); ctx.arc(t.x, t.y, 10 * bossScale, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+    ctx.globalAlpha = 1;
+  }
+  if (e.turbo || (e.isBoss && e.invincible > 0)) {
+    ctx.save(); ctx.translate(x, y);
+    for (let i = 0; i < 5; i++) {
+      const a = tick * 0.3 + (i / 5) * Math.PI * 2;
+      const r = (30 + Math.sin(tick * 0.15 + i * 2) * 6) * bossScale;
+      ctx.save(); ctx.translate(Math.cos(a) * r, Math.sin(a) * r); ctx.rotate(a + Math.PI / 2);
+      ctx.fillStyle = e.isBoss ? '#ef4444' : colors.trail;
+      ctx.globalAlpha = 0.6 + Math.sin(tick * 0.2 + i) * 0.2;
+      ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(5, 5); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  if (e.isBoss) {
+    const phaseColor = e.bossPhase === 3 ? '#a855f7' : e.bossPhase === 2 ? '#f97316' : '#ef4444';
+    const pr = 40 * bossScale + Math.sin(tick * 0.15) * 10;
+    ctx.fillStyle = rgba(phaseColor, 0.08);
+    ctx.beginPath(); ctx.arc(x, y, pr + 20, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = rgba(phaseColor, 0.35); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.stroke();
+  }
+  if ((e.buffShield || 0) > 0) {
+    ctx.strokeStyle = 'rgba(147,197,253,' + (0.4 + Math.sin(tick * 0.3) * 0.2) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 26 * bossScale, 0, Math.PI * 2); ctx.stroke();
+  }
+  if ((e.buffPower || 0) > 0) {
+    ctx.strokeStyle = 'rgba(239,68,68,' + (0.3 + Math.sin(tick * 0.25) * 0.15) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 30 * bossScale, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // === АУРЫ ЧАРДЖЕЙ ===
+  const skin = colors.skin || '#f2c49b';
+  if (e.state === 'KI_CHARGE' || e.state === 'KAMEHAMEHA_CHARGE' || e.state === 'KI_BEAM_CHARGE' || e.state === 'MELEE_CHARGE') {
+    let auraColor = colors.aura;
+    let baseSize = 22 * bossScale;
+    if (e.state === 'MELEE_CHARGE') {
+      auraColor = colors.hair;
+      const ratio = Math.min(1, (e.meleeCharge || 0) / 80);
+      baseSize = (25 + ratio * 55) * bossScale;
+      ctx.strokeStyle = rgba(auraColor, 0.2 + ratio * 0.5); ctx.lineWidth = 2 + ratio * 4;
+      ctx.beginPath(); ctx.arc(x, y, baseSize + Math.sin(tick * 0.4) * 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = rgba(auraColor, 0.15 + ratio * 0.35); ctx.lineWidth = 1 + ratio * 2;
+      ctx.beginPath(); ctx.arc(x, y, baseSize * 0.65 + Math.sin(tick * 0.4) * 2.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = rgba(auraColor, 0.08 + ratio * 0.15);
+      ctx.beginPath(); ctx.arc(x, y, baseSize * 0.5, 0, Math.PI * 2); ctx.fill();
+    } else if (e.state === 'KAMEHAMEHA_CHARGE') {
+      auraColor = colors.kameha;
+      const ratio = Math.min(1, (e.kamehamehaCharge || 0) / (e.kamehamehaMaxCharge || 450));
+      baseSize = (25 + ratio * 55) * bossScale;
+      ctx.strokeStyle = rgba(auraColor, 0.2 + ratio * 0.5); ctx.lineWidth = 2 + ratio * 4;
+      ctx.beginPath(); ctx.arc(x, y, baseSize + Math.sin(tick * 0.4) * 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = rgba(auraColor, 0.15 + ratio * 0.35); ctx.lineWidth = 1 + ratio * 2;
+      ctx.beginPath(); ctx.arc(x, y, baseSize * 0.65 + Math.sin(tick * 0.4) * 2.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = rgba(auraColor, 0.08 + ratio * 0.15);
+      ctx.beginPath(); ctx.arc(x, y, baseSize * 0.5, 0, Math.PI * 2); ctx.fill();
+    } else if (e.state === 'KI_BEAM_CHARGE') {
+      const ratio = Math.min(1, (e.kiBlastCharge || 0) / (e.kiBlastMaxCharge || 120));
+      const c = colors.trail;
+      const pulse = (13 + ratio * 16) * bossScale + Math.sin(tick * 0.2) * 4;
+      ctx.fillStyle = rgba(c, 0.1 + ratio * 0.1);
+      ctx.beginPath(); ctx.arc(x, y, pulse + 10, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = rgba(c, 0.3 + ratio * 0.3); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, pulse, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      const pulse = baseSize + Math.sin(tick * 0.12) * 8 + (e.kamehamehaCharge || 0) * 0.18;
+      ctx.fillStyle = rgba(auraColor, 0.12);
+      ctx.beginPath(); ctx.arc(x, y, pulse + 18, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = rgba(auraColor, 0.35); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, pulse, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // шары камехамехи / сгусток ки-бима — позиции вычисляются после позы (см. ниже)
+
+  // === СБОРКА ФРАГМЕНТОВ ===
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(bossScale, bossScale);
+  if (e.invincible > 0 && Math.floor(tick / 3) % 2 === 0) ctx.globalAlpha = 0.4;
+  if (e.hitFlash > 0) ctx.globalAlpha = 0.5;
+
+  // параметры частей: глобальные + оверлей текущего стейта
+  const stO = P.states[e.state] || {};
+  const part = id => ({ ...P.parts[id], ...((stO[id]) || {}) });
+
+  const o = {
+    kamehaHands: stO.kamehaHands || P.kamehaHands,
+    beamSide: stO.beamSide || P.beamSide,
+    gap: stO.gap !== undefined ? stO.gap : P.gap,
+    twoPalms: stO.twoPalms !== undefined ? stO.twoPalms : P.twoPalms
+  };
+  const pose = computePose(e, o) || computePose({ ...e, state: 'IDLE' }, o);
+  const handL = part('handL'), handR = part('handR');
+  const armLp = part('armL'), armRp = part('armR');
+
+  const parts = [];
+  const push = (p, fn) => { if (p && p.on !== false && fn) parts.push({ z: p.z !== undefined ? p.z : 10, fn }); };
+
+  // --- примитивы ---
+  const drawArmSeg = (seg, p) => {
+    if (!seg) return;
+    // поворот сегмента вокруг плеча + сдвиг
+    let [x1, y1, x2, y2] = seg;
+    const r = (p.rot || 0) * D;
+    if (r) {
+      const c = Math.cos(r), s = Math.sin(r);
+      const ex = x2 - x1, ey = y2 - y1;
+      x2 = x1 + ex * c - ey * s; y2 = y1 + ex * s + ey * c;
+    }
+    x1 += p.x || 0; y1 += p.y || 0; x2 += p.x || 0; y2 += p.y || 0;
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const a = Math.atan2(dy, dx);
+    const sc = p.scale || 1;
+    ctx.fillStyle = P.colors.cloth || '#1e293b';
+    ctx.beginPath(); ctx.ellipse(x1 + dx * 0.32 * sc, y1 + dy * 0.32 * sc, len * 0.4 * sc, 3.2 * sc, a, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x1 + dx * 0.74 * sc, y1 + dy * 0.74 * sc, len * 0.32 * sc, 2.7 * sc, a, 0, Math.PI * 2); ctx.fill();
+  };
+
+  const drawPalm = (hp, p) => {
+    if (!hp) return;
+    const hx = hp.x + (p.x || 0), hy = hp.y + (p.y || 0);
+    const sc = p.scale || 1;
+    if (p.type === 'cup') drawCup(hx, hy, hp.m, (p.rot || 0) * D, (p.frot || 0) * D, sc);
+    else drawHand(hx, hy, (hp.ha || 0) + (p.rot || 0) * D * (hp.m || 1), hp.m, p.type === 'open', (p.frot || 0) * D, sc);
+  };
+
+  const drawHand = (hx, hy, ha, m, open, frot, sc) => {
+    const r = 4.2 * (sc || 1);
+    const cs = Math.cos(ha), sn = Math.sin(ha);
+    const fr = (frot || 0) * (m || 1);
+    const fc = Math.cos(fr), fs = Math.sin(fr);
+    const f = (dx, dy) => {
+      const rx = dx * fc - dy * fs, ry = dx * fs + dy * fc;
+      return [hx + rx * cs - ry * sn * m, hy + rx * sn + ry * cs * m];
+    };
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill();
+    // палец-фрагмент: x/y/rot/scale/on; поворот и масштаб вокруг основания
+    const fid = m < 0 ? 'fingerL' : 'fingerR'; // пальцы левой/правой руки — отдельные фрагменты
+    const fingerTF = (i, base) => {
+      const fp = part(fid + i) || P.parts['finger' + i] || {};
+      const fr2 = (fp.rot || 0) * D * (m || 1);
+      const c2 = Math.cos(fr2), s2 = Math.sin(fr2);
+      const k2 = fp.scale || 1;
+      return (pt) => {
+        const dx = (pt[0] - base[0]) * k2, dy = (pt[1] - base[1]) * k2;
+        const rx = dx * c2 - dy * s2, ry = dx * s2 + dy * c2;
+        return f(base[0] + rx + (fp.x || 0), base[1] + ry + (fp.y || 0));
+      };
+    };
+    if (open) {
+      ctx.strokeStyle = skin;
+      const cap = (a, b, w) => { ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); };
+      const defs = [
+        { b: [r * 0.6, -r * 0.28], m1: [r * 1.35, -r * 0.36], t: [r * 2.05, -r * 0.44], w: r * 0.55 },
+        { b: [r * 0.5, r * 0.42], m1: [r * 1.2, r * 0.54], t: [r * 1.85, r * 0.66], w: r * 0.48 },
+        { b: [-r * 0.1, r * 0.9], m1: [r * 0.2, r * 1.35], t: [r * 0.5, r * 1.75], w: r * 0.45 }
+      ];
+      const nF = Math.max(1, Math.min(3, P.fingers || 3));
+      for (let i = 0; i < nF; i++) {
+        const fp = part(fid + (i + 1)) || P.parts['finger' + (i + 1)] || {};
+        if (fp.on === false) continue;
+        const tf = fingerTF(i + 1, defs[i].b);
+        const k2 = fp.scale || 1;
+        cap(tf(defs[i].b), tf(defs[i].m1), defs[i].w * k2);
+        cap(tf(defs[i].m1), tf(defs[i].t), defs[i].w * 0.85 * k2);
+      }
+    } else {
+      // костяшки кулака — управляются теми же палец-фрагментами
+      const bumps = [
+        { c: [r * 1.05, -r * 0.5], br: r * 0.45, fi: 1 },
+        { c: [r * 1.2, 0], br: r * 0.48, fi: 2 },
+        { c: [r * 1.05, r * 0.5], br: r * 0.45, fi: 2 },
+        { c: [-r * 0.1, r * 1.0], br: r * 0.48, fi: 3 }
+      ];
+      for (const bp of bumps) {
+        const fp = part(fid + bp.fi) || P.parts['finger' + bp.fi] || {};
+        if (fp.on === false) continue;
+        const tf = fingerTF(bp.fi, bp.c);
+        const k2 = fp.scale || 1;
+        const ctr = tf(bp.c);
+        ctx.beginPath();
+        ctx.arc(ctr[0], ctr[1], bp.br * k2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  };
+
+  const drawCup = (hx, hy, m, rot, frot, sc) => {
+    const k = sc || 1;
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.rotate(rot || 0);
+    ctx.fillStyle = skin; ctx.strokeStyle = skin;
+    ctx.lineWidth = 3.5 * k; ctx.lineCap = 'round';
+    ctx.save();
+    ctx.translate(2 * k, 0);
+    ctx.rotate((frot || 0) * (m || 1));
+    ctx.beginPath(); ctx.arc(0, 0, 5 * k, Math.PI - 0.8, Math.PI + 0.8); ctx.stroke();
+    ctx.restore();
+    ctx.beginPath(); ctx.ellipse(3 * k, 0, 4.5 * k, 2.8 * k, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6.5 * k, -2.6 * m * k, 2 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  };
+
+  // --- фрагменты ---
+  // тень
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath(); ctx.ellipse(0, 6, 14, 10, 0, 0, Math.PI * 2); ctx.fill();
+
+  // ноги (левая и правая — по отдельности)
+  const drawLeg = (p, dx) => {
+    ctx.save();
+    ctx.translate(dx + (p.x || 0), 14 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    if (p.type === 'stub') {
+      ctx.fillStyle = P.colors.cloth || '#1e293b';
+      ctx.beginPath(); ctx.ellipse(0, 2, 4, 6.5, 0.1, 0, Math.PI * 2); ctx.fill();
+    } else if (p.type === 'boots') {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = P.colors.cloth || '#1e293b';
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(1.5, 9); ctx.stroke();
+    }
+    ctx.restore();
+  };
+  push(part('legL'), () => drawLeg(part('legL'), -3.5));
+  push(part('legR'), () => drawLeg(part('legR'), 3.5));
+
+  // руки (сегменты)
+  push(armLp, () => drawArmSeg(pose.armL, armLp));
+  push(armRp, () => drawArmSeg(pose.armR, armRp));
+
+  // торс
+  push(part('torso'), () => {
+    const p = part('torso');
+    ctx.save();
+    ctx.translate(p.x || 0, p.y || 0);
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = e.isBoss ? '#0f0f1a' : (P.colors.cloth || '#1e293b');
+    if (p.type === 'rect') ctx.fillRect(-13, -12, 26, 24);
+    else if (p.type === 'slim') { ctx.beginPath(); ctx.ellipse(0, 0, 12.5, 15.5, 0, 0, Math.PI * 2); ctx.fill(); }
+    else { ctx.beginPath(); ctx.ellipse(0, 0, 16, 14, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  });
+
+  // кисти
+  push(handL, () => drawPalm(pose.handL, handL));
+  push(handR, () => drawPalm(pose.handR, handR));
+
+  // меч
+  if (pose.sword) {
+    parts.push({ z: 16, fn: () => {
+      const pu = (1 + Math.sin(tick * 0.25) * 0.15) * (handR.scale || 1);
+      ctx.save();
+      ctx.shadowColor = colors.kameha; ctx.shadowBlur = 16;
+      ctx.fillStyle = rgba(colors.kameha, 0.55);
+      ctx.beginPath();
+      ctx.moveTo(24, -4.5 * pu); ctx.lineTo(24 + 16 * pu, 0); ctx.lineTo(24, 4.5 * pu);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath();
+      ctx.moveTo(24, -1.8 * pu); ctx.lineTo(24 + 12 * pu, 0); ctx.lineTo(24, 1.8 * pu);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }});
+  }
+
+  // плечи
+  const drawShoulder = (p, side) => {
+    ctx.save();
+    ctx.translate(2 + (p.x || 0), (side < 0 ? -10 : 9) + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = e.isBoss ? '#0f0f1a' : (P.colors.cloth || '#1e293b');
+    if (p.type === 'plate') {
+      ctx.beginPath();
+      ctx.moveTo(-4, -6); ctx.lineTo(5, -4); ctx.lineTo(6, 3); ctx.lineTo(0, 7); ctx.lineTo(-6, 3);
+      ctx.closePath(); ctx.fill();
+    } else if (p.type === 'round') {
+      ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(0, 0, 6.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, 6.5, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  };
+  push(part('shoulderL'), () => drawShoulder(part('shoulderL'), -1));
+  push(part('shoulderR'), () => drawShoulder(part('shoulderR'), 1));
+
+  // ромб ауры на груди
+  push(part('chest'), () => {
+    const p = part('chest');
+    ctx.save();
+    ctx.translate(p.x || 0, p.y || 0);
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = colors.aura;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(-4, -6); ctx.lineTo(4, -6); ctx.lineTo(0, 6); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  });
+
+  // голова
+  push(part('head'), () => {
+    const p = part('head');
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = (P.hairLen > 0) ? (colors.headBack || skin) : skin;
+    ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+
+  // волосы: три независимых фрагмента (длина 1 — передние, 2 — medium, 3 — long)
+  push(part('hairLong'), () => {
+    const p = part('hairLong');
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = colors.hair;
+    const sway = Math.sin(tick * 0.08) * 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, -8); ctx.lineTo(-20, -10 + sway); ctx.lineTo(-32, -2 + sway);
+    ctx.lineTo(-24, 6 + sway); ctx.lineTo(-14, 11);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-6, 8); ctx.lineTo(-18, 17 + sway); ctx.lineTo(-8, 14);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  });
+  push(part('hairMid'), () => {
+    const p = part('hairMid');
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = colors.hair;
+    ctx.beginPath();
+    ctx.moveTo(-6, -8); ctx.lineTo(-18, -9); ctx.lineTo(-13, -3);
+    ctx.lineTo(-20, 0); ctx.lineTo(-12, 5); ctx.lineTo(-16, 10); ctx.lineTo(-8, 10);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  });
+  push(part('hairFront'), () => {
+    const p = part('hairFront');
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.fillStyle = colors.hair;
+    ctx.beginPath();
+    ctx.moveTo(4, -6); ctx.lineTo(12, -12); ctx.lineTo(8, -2);
+    ctx.lineTo(16, -4); ctx.lineTo(10, 2); ctx.lineTo(14, 8); ctx.lineTo(6, 6);
+    ctx.lineTo(8, 14); ctx.lineTo(2, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  });
+
+  // уши (левое/правое, типы: human — овал с мочкой-кругом, ovalCircle — овал с чёрным кругом, elf — треугольник+овал+круг)
+  const drawEar = (p, side) => {
+    ctx.save();
+    ctx.translate((side < 0 ? 0 : 4) + (p.x || 0), (side < 0 ? -7 : 2) + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    const ec = p.color || skin;
+    ctx.fillStyle = ec;
+    if (p.type === 'ovalCircle') {
+      ctx.beginPath(); ctx.ellipse(0, 0, 3, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(0, 0, 1.6, 0, Math.PI * 2); ctx.fill();
+    } else if (p.type === 'elf') {
+      ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4.5, -1); ctx.lineTo(3, 3); ctx.lineTo(-1, 2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0.5, 1.5, 2.5, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(0.5, 1, 1.2, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.ellipse(0, 0, 3, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 4.5, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  };
+  push(part('earL'), () => drawEar(part('earL'), -1));
+  push(part('earR'), () => drawEar(part('earR'), 1));
+
+  // антенны (как у пикколо) — левая и правая по отдельности
+  const drawAntenna = (p, bx) => {
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.strokeStyle = colors.hair; ctx.fillStyle = colors.hair;
+    ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx, -8);
+    ctx.quadraticCurveTo(bx - 2, -14, bx - 3, -17);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx - 3, -17.5, 1.9, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  };
+  push(part('antennaL'), () => drawAntenna(part('antennaL'), -1));
+  push(part('antennaR'), () => drawAntenna(part('antennaR'), 5));
+
+  // отросток на голове (как у маджин буу)
+  push(part('booTail'), () => {
+    const p = part('booTail');
+    ctx.save();
+    ctx.translate(6 + (p.x || 0), -2 + (p.y || 0));
+    ctx.rotate((p.rot || 0) * D);
+    ctx.scale(p.scale || 1, p.scale || 1);
+    ctx.strokeStyle = colors.hair; ctx.fillStyle = colors.hair;
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(2, -9);
+    ctx.quadraticCurveTo(6, -16, 4, -22);
+    ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(4, -23.5, 3.2, 4.2, 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+
+  // глаза
+  push({ z: P.eyes.z, on: true }, () => {
+    const E = { ...P.eyes, ...(stO.eyes || {}) };
+    if (E.on === false) return;
+    const esc = E.scale || 1;
+    const eyeCol = E.color || (e.isBoss ? '#ef4444' : '#000');
+    const eye = (ex, ey, rot) => {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate((rot || 0) * D);
+      ctx.scale(esc, esc);
+      if (E.style === 'circle') {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(0, 0, 2.4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = eyeCol;
+        ctx.beginPath(); ctx.arc(0.8, 0, 1.2, 0, Math.PI * 2); ctx.fill();
+      } else if (E.style === 'angry') {
+        ctx.fillStyle = eyeCol;
+        ctx.beginPath();
+        ctx.moveTo(-2.5, -2.5); ctx.lineTo(2.5, -1); ctx.lineTo(1.5, 2); ctx.lineTo(-2.5, 0.5);
+        ctx.closePath(); ctx.fill();
+      } else if (E.style === 'line') {
+        ctx.fillStyle = eyeCol;
+        ctx.fillRect(-2.7, -0.8, 5.5, 1.6);
+      } else if (E.style === 'glow') {
+        ctx.save();
+        ctx.shadowColor = e.isBoss ? '#ef4444' : '#67e8f9';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = E.color || (e.isBoss ? '#ef4444' : '#a5f3fc');
+        ctx.beginPath(); ctx.arc(0, 0, 1.9, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = eyeCol;
+        ctx.fillRect(-2, -1.5, 4, 3);
+      }
+      ctx.restore();
+    };
+    if (E.count === 1) eye(10.5 + E.mid.x, -3.5 + E.mid.y, E.mid.rot);
+    else if (E.count === 2) { eye(10.5 + E.mid.x, -6.2 + E.mid.y, E.mid.rot); eye(10.5 + E.mid.x, -0.8 + E.mid.y, E.mid.rot); }
+    else { eye(10.5, -6.2); eye(10.5, -0.8); eye(10.5 + E.mid.x, -3.5 + E.mid.y, E.mid.rot); }
+  });
+
+  // === РЕНДЕР ПО Z ===
+  parts.sort((a, b) => a.z - b.z);
+  for (const p of parts) p.fn();
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // === ЭФФЕКТЫ ПЕРЕД ЛИЦОМ (шары камехи / сгусток ки-бима) ===
+  if (e.state === 'KAMEHAMEHA_CHARGE') {
+    const ratio = (e.kamehamehaCharge || 0) / 150;
+    const sz = (12 + ratio * 24) * bossScale;
+    const cups = [];
+    if (pose.handR) cups.push({ hx: pose.handR.x + (handR.x || 0), hy: pose.handR.y + (handR.y || 0), s: 1 });
+    if (pose.handL) cups.push({ hx: pose.handL.x + (handL.x || 0), hy: pose.handL.y + (handL.y || 0), s: -1 });
+    for (const c of cups) {
+      const bx = x + ((c.hx + 1) * Math.cos(angle) - (c.hy - 9 * c.s) * Math.sin(angle)) * bossScale;
+      const by = y + ((c.hx + 1) * Math.sin(angle) + (c.hy - 9 * c.s) * Math.cos(angle)) * bossScale;
+      ctx.shadowColor = colors.kameha; ctx.shadowBlur = 25 + ratio * 25;
+      ctx.fillStyle = rgba(colors.kameha, 0.85);
+      ctx.beginPath(); ctx.arc(bx, by, sz, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(bx, by, sz * 0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+  if (e.state === 'KI_BEAM_CHARGE') {
+    const ratio = Math.min(1, (e.kiBlastCharge || 0) / (e.kiBlastMaxCharge || 120));
+    const hp = o.beamSide === 'left' ? pose.handL : pose.handR;
+    const pp = o.beamSide === 'left' ? handL : handR;
+    if (hp) {
+      const lx = hp.x + (pp.x || 0) + 6, ly = hp.y + (pp.y || 0);
+      const bx = x + (lx * Math.cos(angle) - ly * Math.sin(angle)) * bossScale;
+      const by = y + (lx * Math.sin(angle) + ly * Math.cos(angle)) * bossScale;
+      const bs = (4 + ratio * 9) * bossScale;
+      ctx.shadowColor = colors.trail; ctx.shadowBlur = 14;
+      ctx.fillStyle = rgba(colors.trail, 0.85);
+      ctx.beginPath(); ctx.arc(bx, by, bs, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(bx, by, bs * 0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+  if (e.state === 'MELEE') {
+    const hp = pose.handR;
+    if (hp) {
+      const hx2 = hp.x + (handR.x || 0), hy2 = hp.y + (handR.y || 0);
+      const fx = x + (hx2 * Math.cos(angle) - hy2 * Math.sin(angle)) * bossScale;
+      const fy = y + (hx2 * Math.sin(angle) + hy2 * Math.cos(angle)) * bossScale;
+      ctx.strokeStyle = skin; ctx.lineWidth = 2;
+      const fl = 8 + Math.sin(tick * 0.6) * 2;
+      for (let i = 0; i < 4; i++) {
+        const a2 = i * (Math.PI / 2) + tick * 0.1;
+        ctx.beginPath();
+        ctx.moveTo(fx + Math.cos(a2) * 5, fy + Math.sin(a2) * 5);
+        ctx.lineTo(fx + Math.cos(a2) * fl, fy + Math.sin(a2) * fl);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // полоска HP + имя
+  const barW = e.isBoss ? 90 : 52;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(x - barW / 2, y - 42 * bossScale - 10, barW, 5);
+  const hpRatio = Math.max(0, e.hp / e.maxHp);
+  ctx.fillStyle = e.isBoss ? '#dc2626' : (hpRatio > 0.3 ? '#ef4444' : '#f87171');
+  ctx.fillRect(x - barW / 2, y - 42 * bossScale - 10, barW * hpRatio, 5);
+  ctx.fillStyle = isMe ? '#fbbf24' : (e.isBoss ? '#ef4444' : '#e2e8f0');
+  ctx.font = 'bold ' + (e.isBoss ? 13 : 10) + 'px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText((e.isBoss ? '👑 ' : e.isBot ? '🤖 ' : '') + (e.name || '???'), x, y - 42 * bossScale - 14);
+}
+</script>
+
+<div id="stage"><canvas id="cv" width="900" height="600"></canvas></div>
+
+<div id="panel">
+  <h2>🎛 Fragment editor</h2>
+
+  <div class="sec">
+    <div class="row"><label>State (pose)
+      <button class="ghost" id="btn-addstate" style="width:auto;padding:1px 10px;margin:0;float:right;font-size:11px">＋ new</button></label>
+      <select id="c-state">
+        <option>IDLE</option><option>WALK</option><option>DASH</option><option>SWOOP</option>
+        <option>MELEE</option><option>MELEE_CHARGE</option><option>HIT</option>
+        <option>KI_CHARGE</option><option>KI_BLAST</option><option>KI_BEAM_CHARGE</option>
+        <option>KAMEHAMEHA_CHARGE</option><option>SLASH</option><option>SWORD</option>
+        <option>TELEPORT</option><option>KNOCKBACK</option><option>SUPER_ATTACK</option>
+      </select>
+    </div>
+    <div class="row"><label>Fragment</label>
+      <select id="c-part">
+        <option value="legL">Left leg</option>
+        <option value="legR">Right leg</option>
+        <option value="torso" selected>Torso</option>
+        <option value="armL">Left arm (segments)</option>
+        <option value="armR">Right arm (segments)</option>
+        <option value="handL">Left hand</option>
+        <option value="handR">Right hand</option>
+        <option value="shoulderL">Left shoulder</option>
+        <option value="shoulderR">Right shoulder</option>
+        <option value="chest">Chest diamond</option>
+        <option value="head">Head</option>
+        <option value="hairFront">Hair 1 (front)</option>
+        <option value="hairMid">Hair 2 (mid)</option>
+        <option value="hairLong">Hair 3 (long)</option>
+        <option value="antennaL">Left antenna</option>
+        <option value="antennaR">Right antenna</option>
+        <option value="booTail">Head tentacle (buu)</option>
+        <option value="earL">Left ear</option>
+        <option value="earR">Right ear</option>
+        <option value="fingerL1">Finger L1 (index+mid)</option>
+        <option value="fingerL2">Finger L2 (ring+pinky)</option>
+        <option value="fingerL3">Finger L3 (thumb)</option>
+        <option value="fingerR1">Finger R1 (index+mid)</option>
+        <option value="fingerR2">Finger R2 (ring+pinky)</option>
+        <option value="fingerR3">Finger R3 (thumb)</option>
+        <option value="eyes">Eyes</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <div class="checks"><label><input type="checkbox" id="c-applyall">Apply to ALL states at once (base + each state)</label></div>
+    </div>
+    <div id="part-controls"></div>
+  </div>
+
+  <div class="sec">
+    <h3>State-specific</h3>
+    <div class="row"><label>Mirror arms (hands+fingers, current state)</label>
+      <div style="display:flex;gap:6px">
+        <button class="ghost" id="btn-mirror-lr" style="margin-top:0">🪞 L → R</button>
+        <button class="ghost" id="btn-mirror-rl" style="margin-top:0">🪞 R → L</button>
+      </div>
+    </div>
+    <div class="row"><label>Hand type (state)</label>
+      <select id="c-handtype">
+        <option value="fist">Fist</option>
+        <option value="open">Open</option>
+        <option value="cup">Cup [_,.</option>
+      </select>
+    </div>
+    <div class="row"><label>Kamehameha hands (state)</label>
+      <select id="c-kameha-hands">
+        <option value="right" selected>Right</option>
+        <option value="left">Left</option>
+        <option value="both">Both (one per side)</option>
+      </select>
+    </div>
+    <div class="row"><label>Ki beam/blast arm (state)</label>
+      <select id="c-beam-side">
+        <option value="right" selected>Right</option>
+        <option value="left">Left</option>
+      </select>
+    </div>
+    <div class="row"><label>Palm gap (shot) <span class="val" id="v-gap">12</span></label>
+      <input type="range" id="c-gap" min="0" max="20" step="0.5" value="12">
+    </div>
+    <div class="row"><label>Two palms mode (shot)</label>
+      <select id="c-twopalms"><option value="1" selected>Yes (kamehameha)</option><option value="0">No (regular)</option></select>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Eyes</h3>
+    <div class="row"><label>Count</label>
+      <select id="c-eyecount">
+        <option value="1" selected>1 (centered)</option>
+        <option value="2">2 (symmetric)</option>
+        <option value="3">3 (aimable middle)</option>
+      </select>
+    </div>
+    <div class="row"><label>Style</label>
+      <select id="c-eyes">
+        <option value="rect" selected>Rect</option>
+        <option value="circle">Round</option>
+        <option value="angry">Angry</option>
+        <option value="line">Line</option>
+        <option value="glow">Glow</option>
+      </select>
+    </div>
+    <div id="eye3-controls"></div>
+  </div>
+
+  <div class="sec">
+    <h3>Appearance</h3>
+    <div class="row"><label>Colors</label>
+      <div class="colors">
+        <div><input type="color" id="c-hair" value="#fbbf24">Hair</div>
+        <div><input type="color" id="c-aura" value="#3b82f6">Aura</div>
+        <div><input type="color" id="c-kameha" value="#3b82f6">Ki/Kamehameha</div>
+        <div><input type="color" id="c-trail" value="#22d3ee">Trail</div>
+        <div><input type="color" id="c-skin" value="#f2c49b">Skin</div>
+        <div><input type="color" id="c-headcol" value="#f2c49b">Head (back)</div>
+        <div><input type="color" id="c-cloth" value="#1e293b">Clothes</div>
+      </div>
+    </div>
+    <div class="row"><label>Hair length</label>
+      <select id="c-hairlen">
+        <option value="0">0 — bald</option>
+        <option value="1" selected>1 — short</option>
+        <option value="2">2 — medium</option>
+        <option value="3">3 — long</option>
+      </select>
+    </div>
+    <div class="row"><label>Fingers per hand</label>
+      <select id="c-fingers">
+        <option value="1">1</option><option value="2">2</option><option value="3" selected>3</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Flags / zoom</h3>
+    <div class="row">
+      <div class="checks">
+        <label><input type="checkbox" id="c-turbo">Turbo</label>
+        <label><input type="checkbox" id="c-shield">Shield</label>
+        <label><input type="checkbox" id="c-power">Power+</label>
+        <label><input type="checkbox" id="c-hit">HitFlash</label>
+        <label><input type="checkbox" id="c-inv">Invincible</label>
+        <label><input type="checkbox" id="c-boss">Boss</label>
+        <label><input type="checkbox" id="c-trail">Trail</label>
+        <label><input type="checkbox" id="c-grab">Grab</label>
+        <label><input type="checkbox" id="c-me" checked>This is me</label>
+        <label><input type="checkbox" id="c-rot">Rotate</label>
+      </div>
+    </div>
+    <div class="row" id="boss-phase-row" style="display:none"><label>Boss phase</label>
+      <select id="c-phase"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option></select>
+    </div>
+    <div class="row"><label>Zoom <span class="val" id="v-zoom">10x</span></label>
+      <input type="range" id="c-zoom" min="1" max="20" value="10">
+    </div>
+  </div>
+
+  <button id="btn-use">✅ Use this character</button>
+  <button class="ghost" id="btn-randomize">🎲 Random</button>
+  <button class="ghost" id="btn-save">💾 Save to file</button>
+  <button class="ghost" id="btn-loadfile">📂 Load from file</button>
+  <button class="ghost" id="btn-src">📄 Source + JSON</button>
+  <button class="ghost" id="btn-reset">↩ Reset all</button>
+  <input type="file" id="file-inp" accept=".json,application/json" style="display:none">
+</div>
+
+<div id="src-wrap">
+  <h3>drawEntity + PARAMS <button class="ghost" style="width:auto;padding:3px 12px;float:right" id="btn-src-close">Close</button></h3>
+  <pre id="src-view"></pre>
+  <textarea id="import-ta" placeholder='Paste PARAMS JSON here and press "Import"'></textarea>
+  <button class="ghost" id="btn-import">⬆ Import JSON</button>
+</div>
+
+<script>
+const src = document.getElementById('draw-source').textContent;
+eval(src); // hexToRgb, rgba, computePose, drawEntity
+
+// ================= ПАРАМЕТРЫ (редактируются панелью; экспортируются в JSON) =================
+const DEFAULTS = {
+  "colors": {
+    "hair": "#fbbf24",
+    "aura": "#3b82f6",
+    "kameha": "#3b82f6",
+    "trail": "#22d3ee",
+    "skin": "#f2c49b",
+    "headBack": "#f2c49b",
+    "cloth": "#1e293b"
+  },
+  "hairLen": 1,
+  "fingers": 3,
+  "kamehaHands": "right",
+  "beamSide": "right",
+  "gap": 12,
+  "twoPalms": true,
+  "eyes": {
+    "count": 2,
+    "z": 36,
+    "style": "angry",
+    "mid": {
+      "x": -12.5,
+      "y": 3.5,
+      "rot": -105
+    },
+    "scale": 0.6,
+    "color": "#817e7e"
+  },
+  "parts": {
+    "legL": {
+      "on": true,
+      "type": "stub",
+      "x": 7,
+      "y": -20,
+      "rot": -105,
+      "z": 0,
+      "scale": 0.7
+    },
+    "legR": {
+      "on": true,
+      "type": "stub",
+      "x": 1,
+      "y": -7.5,
+      "rot": -65,
+      "z": 0,
+      "scale": 0.7
+    },
+    "booTail": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 33,
+      "scale": 1
+    },
+    "earL": {
+      "on": false,
+      "type": "human",
+      "color": "",
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 29,
+      "scale": 1
+    },
+    "earR": {
+      "on": false,
+      "type": "human",
+      "color": "",
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 29,
+      "scale": 1
+    },
+    "torso": {
+      "on": true,
+      "type": "rect",
+      "x": 0,
+      "y": 0.5,
+      "rot": -45,
+      "z": 1,
+      "scale": 0.45
+    },
+    "armL": {
+      "on": true,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 8
+    },
+    "armR": {
+      "on": true,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 8
+    },
+    "handL": {
+      "on": true,
+      "type": "fist",
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "frot": 0,
+      "z": 15
+    },
+    "handR": {
+      "on": true,
+      "type": "fist",
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "frot": 0,
+      "z": 15
+    },
+    "shoulderL": {
+      "on": true,
+      "type": "plate",
+      "x": 0,
+      "y": 5,
+      "rot": 30,
+      "z": 7
+    },
+    "shoulderR": {
+      "on": true,
+      "type": "plate",
+      "x": 0,
+      "y": -2.5,
+      "rot": -150,
+      "z": 6
+    },
+    "chest": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 28
+    },
+    "head": {
+      "on": true,
+      "x": -7,
+      "y": 2.5,
+      "rot": 0,
+      "z": 30,
+      "scale": 0.65
+    },
+    "hairFront": {
+      "on": true,
+      "x": -15.5,
+      "y": 2.5,
+      "rot": -10,
+      "z": 32,
+      "scale": 0.55
+    },
+    "hairMid": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 32,
+      "scale": 1
+    },
+    "hairLong": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 32,
+      "scale": 1
+    },
+    "fingerL1": {
+      "on": true,
+      "x": 4,
+      "y": 0.5,
+      "rot": 15,
+      "scale": 1
+    },
+    "fingerL2": {
+      "on": true,
+      "x": -5.5,
+      "y": -5.5,
+      "rot": -5,
+      "scale": 1
+    },
+    "fingerL3": {
+      "on": true,
+      "x": -15.5,
+      "y": -10.5,
+      "rot": -50,
+      "scale": 1
+    },
+    "fingerR1": {
+      "on": true,
+      "x": -0.5,
+      "y": 1.5,
+      "rot": 0,
+      "scale": 1
+    },
+    "fingerR2": {
+      "on": true,
+      "x": 0,
+      "y": -2,
+      "rot": 0,
+      "scale": 1
+    },
+    "fingerR3": {
+      "on": true,
+      "x": -1,
+      "y": -4.5,
+      "rot": 0,
+      "scale": 1
+    },
+    "antennaL": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 33,
+      "scale": 1
+    },
+    "antennaR": {
+      "on": false,
+      "x": 0,
+      "y": 0,
+      "rot": 0,
+      "z": 33,
+      "scale": 1
+    }
+  },
+  "states": {
+    "MELEE": {
+      "handR": {
+        "type": "fist",
+        "rot": 50,
+        "frot": -60,
+        "scale": 0.55,
+        "x": -4.5,
+        "y": -4
+      },
+      "armL": {
+        "on": true,
+        "x": -12,
+        "y": -20,
+        "rot": -60,
+        "z": 13,
+        "scale": 1
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": -10,
+        "z": 4,
+        "scale": 0.8
+      },
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 1.5,
+        "y": 0.5,
+        "rot": -140,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.55
+      },
+      "eyes": {
+        "color": "#ff0000",
+        "scale": 0.45,
+        "mid": {
+          "x": -2.5,
+          "y": 3.5,
+          "rot": -90
+        },
+        "style": "line"
+      },
+      "head": {
+        "on": true,
+        "x": -0.5,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "hairFront": {
+        "on": true,
+        "x": -0.5,
+        "y": 2.5,
+        "rot": 170,
+        "z": 32,
+        "scale": 0.7
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -4.5,
+        "y": 0,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5.5,
+        "y": 0.5,
+        "rot": -45,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 0.5,
+        "y": 0,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "MELEE_CHARGE": {
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": -1,
+        "rot": 55,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.5
+      },
+      "handR": {
+        "type": "fist",
+        "rot": 55,
+        "frot": 0,
+        "scale": 0.5,
+        "y": 1
+      },
+      "armL": {
+        "on": true,
+        "x": 3.5,
+        "y": 0,
+        "rot": 0,
+        "z": 8
+      },
+      "armR": {
+        "on": true,
+        "x": 3.5,
+        "y": 0,
+        "rot": 0,
+        "z": 8
+      },
+      "eyes": {
+        "color": "#d77070",
+        "mid": {
+          "x": -1,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "hairFront": {
+        "on": true,
+        "x": -6.5,
+        "y": 2.5,
+        "rot": -10,
+        "z": 37,
+        "scale": 0.55
+      },
+      "head": {
+        "on": true,
+        "x": 1,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -0.5,
+        "y": 0,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -0.5,
+        "y": 0.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": -0.5,
+        "y": -4,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "KI_CHARGE": {
+      "handL": {
+        "type": "cup",
+        "rot": -85,
+        "frot": -50,
+        "scale": 0.35,
+        "x": 15,
+        "z": 7
+      },
+      "handR": {
+        "type": "cup",
+        "rot": 90,
+        "frot": -45,
+        "x": 13.5,
+        "scale": 0.4,
+        "z": 6,
+        "y": 4.5
+      },
+      "armL": {
+        "on": true,
+        "x": 13.5,
+        "y": 0.5,
+        "rot": -20,
+        "z": 5
+      },
+      "armR": {
+        "on": true,
+        "x": 13,
+        "y": 2.5,
+        "rot": 10,
+        "z": 6
+      },
+      "hairFront": {
+        "on": true,
+        "x": -8.5,
+        "y": 2.5,
+        "rot": 180,
+        "z": 32,
+        "scale": 0.65
+      },
+      "eyes": {
+        "color": "#447ef3"
+      }
+    },
+    "KI_BLAST": {
+      "handR": {
+        "on": true,
+        "type": "cup",
+        "x": 0,
+        "y": 0,
+        "rot": 80,
+        "frot": -60,
+        "z": 15,
+        "scale": 0.55
+      },
+      "armL": {
+        "on": true,
+        "x": -22,
+        "y": 13,
+        "rot": 0,
+        "z": 8
+      },
+      "handL": {
+        "on": true,
+        "type": "cup",
+        "x": 2,
+        "y": 3.5,
+        "rot": -105,
+        "frot": 130,
+        "z": 6,
+        "scale": 0.55
+      },
+      "fingerL1": {
+        "on": true,
+        "x": 4,
+        "y": -0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5.5,
+        "y": 5.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": -15.5,
+        "y": 10.5,
+        "rot": -50,
+        "scale": 1
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 6
+      },
+      "fingerR1": {
+        "on": true,
+        "x": 4,
+        "y": 0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerR2": {
+        "on": true,
+        "x": -5.5,
+        "y": -5.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerR3": {
+        "on": true,
+        "x": -15.5,
+        "y": -10.5,
+        "rot": -50,
+        "scale": 1
+      },
+      "beamSide": "right",
+      "eyes": {
+        "mid": {
+          "x": -7.5,
+          "y": 3.5,
+          "rot": -105
+        }
+      }
+    },
+    "KI_BEAM_CHARGE": {
+      "handR": {
+        "on": true,
+        "type": "cup",
+        "x": 0,
+        "y": 0,
+        "rot": 75,
+        "frot": -60,
+        "z": 15,
+        "scale": 0.55
+      },
+      "armL": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 8
+      },
+      "handL": {
+        "on": true,
+        "type": "cup",
+        "x": 0.5,
+        "y": 2.5,
+        "rot": -120,
+        "frot": 120,
+        "z": 7,
+        "scale": 0.55
+      },
+      "fingerL1": {
+        "on": true,
+        "x": 4,
+        "y": -0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5.5,
+        "y": 5.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": -15.5,
+        "y": 10.5,
+        "rot": -50,
+        "scale": 1
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 4
+      },
+      "fingerR1": {
+        "on": true,
+        "x": 4,
+        "y": 0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerR2": {
+        "on": true,
+        "x": -5.5,
+        "y": -5.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerR3": {
+        "on": true,
+        "x": -15.5,
+        "y": -10.5,
+        "rot": -50,
+        "scale": 1
+      },
+      "eyes": {
+        "mid": {
+          "x": -7.5,
+          "y": 3.5,
+          "rot": -105
+        }
+      }
+    },
+    "KAMEHAMEHA_CHARGE": {
+      "kamehaHands": "right",
+      "handR": {
+        "type": "cup",
+        "rot": 50,
+        "frot": -55
+      },
+      "handL": {
+        "type": "cup",
+        "rot": 5,
+        "frot": 55
+      },
+      "twoPalms": true,
+      "eyes": {
+        "mid": {
+          "x": -8.5,
+          "y": 3.5,
+          "rot": -105
+        },
+        "color": "#0044b3"
+      },
+      "hairFront": {
+        "on": true,
+        "x": -8,
+        "y": 2.5,
+        "rot": -180,
+        "z": 32,
+        "scale": 0.65
+      }
+    },
+    "SUPER_ATTACK": {
+      "twoPalms": true,
+      "gap": 12,
+      "handL": {
+        "type": "cup",
+        "rot": -90,
+        "frot": -45,
+        "scale": 0.75,
+        "x": -3,
+        "y": 1
+      },
+      "handR": {
+        "type": "cup",
+        "rot": 90,
+        "frot": -45,
+        "scale": 0.75,
+        "x": -3,
+        "y": -1.5
+      },
+      "eyes": {
+        "mid": {
+          "x": -7.5,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "armL": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 7
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 6
+      }
+    },
+    "SWORD": {
+      "handR": {
+        "on": true,
+        "type": "open",
+        "x": -1,
+        "y": -3.5,
+        "rot": 35,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.6
+      },
+      "chest": {
+        "on": false,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 28,
+        "scale": 1
+      },
+      "eyes": {
+        "mid": {
+          "x": -8,
+          "y": 3.5,
+          "rot": -100
+        },
+        "style": "glow",
+        "color": "#2853a0",
+        "scale": 0.55
+      },
+      "twoPalms": true,
+      "armL": {
+        "on": true,
+        "x": -2,
+        "y": 0,
+        "rot": 10,
+        "z": 6
+      },
+      "armR": {
+        "on": true,
+        "x": -2,
+        "y": 0,
+        "rot": -10,
+        "z": 6
+      },
+      "handL": {
+        "on": true,
+        "type": "open",
+        "x": 2,
+        "y": 2,
+        "rot": 30,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.6
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -1,
+        "y": -0.5,
+        "rot": -20,
+        "scale": 1.2
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -2,
+        "y": 0.5,
+        "rot": -5,
+        "scale": 1.3
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 0,
+        "y": -4,
+        "rot": 100,
+        "scale": 1
+      },
+      "fingerR1": {
+        "on": true,
+        "x": -1.5,
+        "y": -1,
+        "rot": -30,
+        "scale": 1.2
+      },
+      "fingerR2": {
+        "on": true,
+        "x": 0,
+        "y": -1,
+        "rot": -60,
+        "scale": 1.3
+      },
+      "fingerR3": {
+        "on": true,
+        "x": -2.5,
+        "y": -2.5,
+        "rot": -130,
+        "scale": 1
+      }
+    },
+    "SLASH": {
+      "handL": {
+        "type": "cup",
+        "rot": -120,
+        "frot": 125,
+        "x": -8.5,
+        "scale": 0.55,
+        "y": 5,
+        "z": 6
+      },
+      "head": {
+        "on": true,
+        "x": -0.5,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "eyes": {
+        "mid": {
+          "x": -0.5,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "hairFront": {
+        "on": true,
+        "x": -8,
+        "y": 2.5,
+        "rot": -10,
+        "z": 32,
+        "scale": 0.55
+      },
+      "armL": {
+        "on": true,
+        "x": -6.5,
+        "y": 6,
+        "rot": 65,
+        "z": 6
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -4,
+        "y": 6,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -0.5,
+        "y": 1,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 0,
+        "y": -7,
+        "rot": -50,
+        "scale": 1
+      },
+      "handR": {
+        "type": "cup",
+        "scale": 0.55,
+        "rot": 45,
+        "frot": 115,
+        "x": 17.5,
+        "y": -10.5,
+        "z": 10
+      },
+      "armR": {
+        "on": true,
+        "x": -11,
+        "y": 0,
+        "rot": 0,
+        "z": 0
+      }
+    },
+    "IDLE": {
+      "armL": {
+        "on": true,
+        "x": 4,
+        "y": 4,
+        "rot": -95,
+        "z": 6
+      },
+      "armR": {
+        "on": true,
+        "x": 5.5,
+        "y": 1,
+        "rot": 0,
+        "z": 5
+      },
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 4.5,
+        "y": 0,
+        "rot": 75,
+        "frot": 0,
+        "z": 5,
+        "scale": 0.55
+      },
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": 5,
+        "y": 2.5,
+        "rot": -40,
+        "frot": 0,
+        "z": 4,
+        "scale": 0.55
+      },
+      "eyes": {
+        "mid": {
+          "x": -7.5,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "fingerL3": {
+        "on": true,
+        "x": -1,
+        "y": 0,
+        "rot": -50,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5,
+        "y": -1,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -5,
+        "y": 2,
+        "rot": 15,
+        "scale": 1
+      }
+    },
+    "HIT": {
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": -2,
+        "y": 3,
+        "rot": 0,
+        "frot": 0,
+        "z": 5,
+        "scale": 0.45
+      },
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 3.5,
+        "y": 3.5,
+        "rot": 110,
+        "frot": 0,
+        "z": 5,
+        "scale": 0.55
+      },
+      "armL": {
+        "on": true,
+        "x": 2.5,
+        "y": 6.5,
+        "rot": -85,
+        "z": 7
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 6
+      },
+      "hairFront": {
+        "on": true,
+        "x": -15.5,
+        "y": 2.5,
+        "rot": -40,
+        "z": 32,
+        "scale": 0.55
+      },
+      "eyes": {
+        "mid": {
+          "x": -12.5,
+          "y": 2,
+          "rot": -85
+        }
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -4,
+        "y": -0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5,
+        "y": 0,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 0,
+        "y": 1,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "WALK": {
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": -180,
+        "frot": 145,
+        "z": 15,
+        "scale": 0.6
+      },
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": 15,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.7
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -5,
+        "y": 3,
+        "rot": 15,
+        "scale": 1
+      },
+      "eyes": {
+        "mid": {
+          "x": 4,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "head": {
+        "on": true,
+        "x": 3.5,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "hairFront": {
+        "on": true,
+        "x": -5,
+        "y": 2.5,
+        "rot": -10,
+        "z": 32,
+        "scale": 0.55
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -4,
+        "y": -3.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 2,
+        "y": -5,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "DASH": {
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": -180,
+        "frot": 145,
+        "z": 15,
+        "scale": 0.6
+      },
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": 15,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.7
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -5,
+        "y": 3,
+        "rot": 15,
+        "scale": 1
+      },
+      "eyes": {
+        "mid": {
+          "x": 4,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "head": {
+        "on": true,
+        "x": 3.5,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "hairFront": {
+        "on": true,
+        "x": -5,
+        "y": 2.5,
+        "rot": -10,
+        "z": 32,
+        "scale": 0.55
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -4,
+        "y": -3.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 2,
+        "y": -5,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "SWOOP": {
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": -180,
+        "frot": 145,
+        "z": 15,
+        "scale": 0.6
+      },
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": 0,
+        "rot": 15,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.7
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -5,
+        "y": 3,
+        "rot": 15,
+        "scale": 1
+      },
+      "eyes": {
+        "mid": {
+          "x": 4,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "head": {
+        "on": true,
+        "x": 3.5,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "hairFront": {
+        "on": true,
+        "x": -5,
+        "y": 2.5,
+        "rot": -10,
+        "z": 32,
+        "scale": 0.55
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -4,
+        "y": -3.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 2,
+        "y": -5,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "KNOCKBACK": {
+      "handR": {
+        "on": true,
+        "type": "fist",
+        "x": -2,
+        "y": 3,
+        "rot": 0,
+        "frot": 0,
+        "z": 5,
+        "scale": 0.45
+      },
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 3.5,
+        "y": 3.5,
+        "rot": 110,
+        "frot": 0,
+        "z": 5,
+        "scale": 0.55
+      },
+      "armL": {
+        "on": true,
+        "x": 2.5,
+        "y": 6.5,
+        "rot": -85,
+        "z": 7
+      },
+      "armR": {
+        "on": true,
+        "x": 0,
+        "y": 0,
+        "rot": 0,
+        "z": 6
+      },
+      "hairFront": {
+        "on": true,
+        "x": -15.5,
+        "y": 2.5,
+        "rot": -40,
+        "z": 32,
+        "scale": 0.55
+      },
+      "eyes": {
+        "mid": {
+          "x": -12.5,
+          "y": 2,
+          "rot": -85
+        }
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -4,
+        "y": -0.5,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -5,
+        "y": 0,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": 0,
+        "y": 1,
+        "rot": -50,
+        "scale": 1
+      }
+    },
+    "TELEPORT": {
+      "handL": {
+        "on": true,
+        "type": "fist",
+        "x": 0,
+        "y": -1,
+        "rot": 55,
+        "frot": 0,
+        "z": 15,
+        "scale": 0.5
+      },
+      "handR": {
+        "type": "fist",
+        "rot": 55,
+        "frot": 0,
+        "scale": 0.5,
+        "y": 1
+      },
+      "armL": {
+        "on": true,
+        "x": 3.5,
+        "y": 0,
+        "rot": 0,
+        "z": 8
+      },
+      "armR": {
+        "on": true,
+        "x": 3.5,
+        "y": 0,
+        "rot": 0,
+        "z": 8
+      },
+      "eyes": {
+        "color": "#d77070",
+        "mid": {
+          "x": -1,
+          "y": 3.5,
+          "rot": -105
+        }
+      },
+      "hairFront": {
+        "on": true,
+        "x": -6.5,
+        "y": 2.5,
+        "rot": -10,
+        "z": 37,
+        "scale": 0.55
+      },
+      "head": {
+        "on": true,
+        "x": 1,
+        "y": 2.5,
+        "rot": 0,
+        "z": 30,
+        "scale": 0.65
+      },
+      "fingerL1": {
+        "on": true,
+        "x": -0.5,
+        "y": 0,
+        "rot": 15,
+        "scale": 1
+      },
+      "fingerL2": {
+        "on": true,
+        "x": -0.5,
+        "y": 0.5,
+        "rot": -5,
+        "scale": 1
+      },
+      "fingerL3": {
+        "on": true,
+        "x": -0.5,
+        "y": -4,
+        "rot": -50,
+        "scale": 1
+      }
+    }
+  }
+};
+let PARAMS = JSON.parse(JSON.stringify(DEFAULTS));
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+let tick = 0;
+let dummyTarget = null;
+function getGrabTarget(e) { return e.grabTarget ? dummyTarget : null; }
+
+// ================= UI: управление фрагментами =================
+const PART_TYPES = {
+  legL: ['none', 'stub', 'boots'],
+  legR: ['none', 'stub', 'boots'],
+  earL: ['human', 'ovalCircle', 'elf'],
+  earR: ['human', 'ovalCircle', 'elf'],
+  torso: ['ellipse', 'rect', 'slim'],
+  shoulderL: ['none', 'pauldron', 'plate', 'round'],
+  shoulderR: ['none', 'pauldron', 'plate', 'round']
+};
+const PART_NAMES = {
+  legL: 'Left leg', legR: 'Right leg', torso: 'Torso', armL: 'Left arm', armR: 'Right arm',
+  handL: 'Left hand', handR: 'Right hand', shoulderL: 'Left shoulder', shoulderR: 'Right shoulder',
+  chest: 'Chest diamond', head: 'Head',
+  hairFront: 'Hair 1 (front)', hairMid: 'Hair 2 (mid)', hairLong: 'Hair 3 (long)',
+  fingerL1: 'Finger L1', fingerL2: 'Finger L2', fingerL3: 'Finger L3',
+  fingerR1: 'Finger R1', fingerR2: 'Finger R2', fingerR3: 'Finger R3',
+  eyes: 'Eyes',
+  antennaL: 'Left antenna', antennaR: 'Right antenna', booTail: 'Head tentacle (buu)', earL: 'Left ear', earR: 'Right ear'
+};
+
+// фрагменты с собственным выбором цвета
+const COLORABLE = { earL: '#f2c49b', earR: '#f2c49b', eyes: '#000000' };
+
+function stateOverlay() {
+  const st = $('c-state').value;
+  PARAMS.states[st] = PARAMS.states[st] || {};
+  return PARAMS.states[st];
+}
+
+// взять объект части с учётом оверлея ТЕКУЩЕГО стейта (все части — по стейтам)
+function getPart(id) {
+  const ov = stateOverlay()[id];
+  if (id === 'eyes') return ov ? { ...PARAMS.eyes, ...ov } : PARAMS.eyes;
+  const base = PARAMS.parts[id];
+  return ov ? { ...base, ...ov } : base;
+}
+function setPart(id, key, val) {
+  const applyAll = document.getElementById('c-applyall') && document.getElementById('c-applyall').checked;
+  if (applyAll) {
+    // в базу + во все существующие стейты
+    if (id === 'eyes') {
+      PARAMS.eyes[key] = val;
+      for (const st in PARAMS.states) { PARAMS.states[st].eyes = PARAMS.states[st].eyes || {}; PARAMS.states[st].eyes[key] = val; }
+      return;
+    }
+    PARAMS.parts[id][key] = val;
+    for (const st in PARAMS.states) {
+      PARAMS.states[st][id] = PARAMS.states[st][id] || { ...PARAMS.parts[id] };
+      PARAMS.states[st][id][key] = val;
+    }
+    return;
+  }
+  if (id === 'eyes') {
+    const ov = stateOverlay();
+    ov.eyes = ov.eyes || {};
+    ov.eyes[key] = val;
+    return;
+  }
+  const ov = stateOverlay();
+  ov[id] = ov[id] || { ...PARAMS.parts[id] };
+  ov[id][key] = val;
+}
+
+function buildPartControls() {
+  const id = $('c-part').value;
+  const p = getPart(id);
+  const box = $('part-controls');
+  let h = '';
+  const slider = (key, label, min, max, step, val) =>
+    `<div class="row"><label>${label} <span class="val" id="pv-${key}">${val}</span></label>
+     <input type="range" data-key="${key}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;
+
+  if (PART_TYPES[id]) {
+    h += `<div class="row"><label>Type</label><select data-key="type">` +
+      PART_TYPES[id].map(t => `<option value="${t}" ${p.type === t ? 'selected' : ''}>${t}</option>`).join('') +
+      `</select></div>`;
+  }
+  if (id !== 'eyes') {
+    h += `<div class="row"><label>Visibility</label><select data-key="on">
+      <option value="1" ${p.on !== false ? 'selected' : ''}>Shown</option>
+      <option value="0" ${p.on === false ? 'selected' : ''}>Hidden</option></select></div>`;
+    h += slider('x', 'Offset X', -40, 40, 0.5, p.x || 0);
+    h += slider('y', 'Offset Y', -40, 40, 0.5, p.y || 0);
+    h += slider('rot', 'Rotation', -180, 180, 5, p.rot || 0);
+    if (!id.startsWith('finger')) h += slider('z', 'Z-order (layering)', 0, 100, 1, p.z !== undefined ? p.z : 10);
+    h += slider('scale', 'Size', 0.2, 3, 0.05, p.scale || 1);
+  } else {
+    h += slider('z', 'Eye Z-order', 0, 100, 1, PARAMS.eyes.z);
+    h += slider('scale', 'Eye size', 0.2, 3, 0.05, PARAMS.eyes.scale || 1);
+  }
+  if (id.startsWith('hand')) {
+    h += slider('frot', 'Finger rotation', -180, 180, 5, p.frot || 0);
+  }
+  if (COLORABLE[id]) {
+    const cur = (id === 'eyes' ? PARAMS.eyes.color : p.color) || COLORABLE[id];
+    h += `<div class="row"><label>Fragment color</label><input type="color" data-key="color" value="${cur}"></div>`;
+  }
+  box.innerHTML = h;
+
+  box.querySelectorAll('input[type=range]').forEach(el => {
+    el.addEventListener('input', () => {
+      setPart(id, el.dataset.key, +el.value);
+      const lbl = $('pv-' + el.dataset.key);
+      const k = el.dataset.key;
+      if (lbl) lbl.textContent = (k === 'rot' || k === 'frot') ? el.value + '°' : (k === 'scale' ? el.value + 'x' : el.value);
+    });
+  });
+  box.querySelectorAll('select').forEach(el => {
+    el.addEventListener('change', () => {
+      const v = el.dataset.key === 'on' ? el.value === '1' : el.value;
+      setPart(id, el.dataset.key, v);
+    });
+  });
+  box.querySelectorAll('input[type=color]').forEach(el => {
+    el.addEventListener('input', () => setPart(id, 'color', el.value));
+  });
+}
+
+function buildEye3Controls() {
+  const box = $('eye3-controls');
+  const Ec = getPart('eyes');
+  const mid = Ec.mid || { x: 0, y: 0, rot: 0 };
+  const who = Ec.count === 3 ? 'Middle eye' : (Ec.count === 2 ? 'Eye pair' : 'Eye');
+  box.innerHTML =
+    `<div class="row"><label>${who} — X <span class="val" id="pv-e3x">${mid.x}</span></label>
+      <input type="range" id="c-e3x" min="-15" max="15" step="0.5" value="${mid.x}"></div>
+     <div class="row"><label>${who} — Y <span class="val" id="pv-e3y">${mid.y}</span></label>
+      <input type="range" id="c-e3y" min="-15" max="15" step="0.5" value="${mid.y}"></div>
+     <div class="row"><label>${who} — поворот <span class="val" id="pv-e3r">${mid.rot}°</span></label>
+      <input type="range" id="c-e3r" min="-180" max="180" step="5" value="${mid.rot}"></div>`;
+  const midSet = (k, v) => { const m = { ...(getPart('eyes').mid || { x: 0, y: 0, rot: 0 }) }; m[k] = v; setPart('eyes', 'mid', m); };
+  $('c-e3x').addEventListener('input', e => { midSet('x', +e.target.value); $('pv-e3x').textContent = e.target.value; });
+  $('c-e3y').addEventListener('input', e => { midSet('y', +e.target.value); $('pv-e3y').textContent = e.target.value; });
+  $('c-e3r').addEventListener('input', e => { midSet('rot', +e.target.value); $('pv-e3r').textContent = e.target.value + '°'; });
+}
+
+$('btn-addstate').addEventListener('click', () => {
+  const name = (prompt('New state name (latin, e.g. FLY_KICK):', 'CUSTOM_' + (Object.keys(PARAMS.states).length + 1)) || '').trim().toUpperCase();
+  if (!name) return;
+  if (!/^[A-Z0-9_]+$/.test(name)) { alert('Only latin letters, digits and underscores'); return; }
+  if (PARAMS.states[name]) { alert('This state already exists'); return; }
+  PARAMS.states[name] = {};
+  const opt = document.createElement('option');
+  opt.value = name; opt.textContent = name;
+  $('c-state').appendChild(opt);
+  $('c-state').value = name;
+  syncStateControls(); buildPartControls();
+});
+
+// приведение загруженного JSON к полной схеме (новые фрагменты из дефолтов)
+function normalizeParams() {
+  PARAMS.parts = Object.assign({}, DEFAULTS.parts, PARAMS.parts || {});
+  PARAMS.states = PARAMS.states || {};
+  PARAMS.eyes = Object.assign({}, DEFAULTS.eyes, PARAMS.eyes || {});
+  PARAMS.colors = Object.assign({}, DEFAULTS.colors, PARAMS.colors || {});
+}
+
+$('c-part').addEventListener('change', buildPartControls);
+$('c-state').addEventListener('change', () => { syncStateControls(); buildPartControls(); });
+$('c-eyecount').addEventListener('change', e => { setPart('eyes', 'count', +e.target.value); buildEye3Controls(); });
+$('c-eyes').addEventListener('change', e => { setPart('eyes', 'style', e.target.value); });
+
+// специфичные параметры стейта
+function syncStateControls() {
+  const ov = PARAMS.states[$('c-state').value] || {};
+  $('c-kameha-hands').value = ov.kamehaHands || PARAMS.kamehaHands;
+  $('c-beam-side').value = ov.beamSide || PARAMS.beamSide;
+  $('c-gap').value = ov.gap !== undefined ? ov.gap : PARAMS.gap;
+  $('v-gap').textContent = $('c-gap').value;
+  $('c-twopalms').value = ov.twoPalms !== undefined ? (ov.twoPalms ? '1' : '0') : '1';
+  const ht = (ov.handR && ov.handR.type) || 'fist';
+  $('c-handtype').value = ht;
+}
+// зеркальная копия руки (вкл. кисть и пальцы) на другую сторону — в текущем стейте
+function mirrorSide(fromL) {
+  const ov = stateOverlay();
+  const src = fromL ? 'L' : 'R', dst = fromL ? 'R' : 'L';
+  // руки и кисти
+  for (const base of ['arm', 'hand']) {
+    const sId = base + src, dId = base + dst;
+    const v = { ...(PARAMS.parts[dId] || {}), ...(ov[sId] || {}) };
+    v.y = -(v.y || 0);
+    if (base === 'arm') {
+      v.rot = -(v.rot || 0); // сегмент: поворот абсолютный → инверсия
+    } else {
+      // кисть: drawHand сам зеркалит через m (поворот НЕ меняем), чаша — абсолютный rot (инверсия)
+      if (v.type === 'cup') v.rot = -(v.rot || 0);
+      // frot через m — визуально тот же, не трогаем
+    }
+    ov[dId] = v;
+  }
+  // пальцы: поворот через m — сохраняем, y инвертируем
+  for (let i = 1; i <= 3; i++) {
+    const sId = 'finger' + src + i, dId = 'finger' + dst + i;
+    const v = { ...(PARAMS.parts[dId] || {}), ...(ov[sId] || {}) };
+    v.y = -(v.y || 0);
+    ov[dId] = v;
+  }
+  buildPartControls();
+}
+$('btn-mirror-lr').addEventListener('click', () => mirrorSide(true));
+$('btn-mirror-rl').addEventListener('click', () => mirrorSide(false));
+
+$('c-kameha-hands').addEventListener('change', e => { stateOverlay().kamehaHands = e.target.value; });
+$('c-beam-side').addEventListener('change', e => { stateOverlay().beamSide = e.target.value; });
+$('c-gap').addEventListener('input', e => { stateOverlay().gap = +e.target.value; $('v-gap').textContent = e.target.value; });
+$('c-twopalms').addEventListener('change', e => { stateOverlay().twoPalms = e.target.value === '1'; });
+$('c-handtype').addEventListener('change', e => {
+  const ov = stateOverlay();
+  ov.handL = ov.handL || {}; ov.handR = ov.handR || {};
+  ov.handL.type = e.target.value; ov.handR.type = e.target.value;
+  buildPartControls();
+});
+
+// внешность
+$('c-hairlen').addEventListener('change', e => {
+  PARAMS.hairLen = +e.target.value;
+  PARAMS.parts.hairFront.on = PARAMS.hairLen >= 1;
+  PARAMS.parts.hairMid.on = PARAMS.hairLen >= 2;
+  PARAMS.parts.hairLong.on = PARAMS.hairLen >= 3;
+  buildPartControls();
+});
+$('c-fingers').addEventListener('change', e => { PARAMS.fingers = +e.target.value; });
+for (const [id, key] of [['c-hair','hair'],['c-aura','aura'],['c-kameha','kameha'],['c-trail','trail'],['c-skin','skin'],['c-headcol','headBack'],['c-cloth','cloth']]) {
+  $(id).addEventListener('input', e => { PARAMS.colors[key] = e.target.value; });
+}
+
+// флаги/зум
+const flags = { turbo:'c-turbo', shield:'c-shield', power:'c-power', hit:'c-hit', inv:'c-inv', boss:'c-boss', trail:'c-trail', grab:'c-grab', me:'c-me', rot:'c-rot' };
+$('c-boss').addEventListener('change', () => { $('boss-phase-row').style.display = $('c-boss').checked ? 'block' : 'none'; });
+$('c-zoom').addEventListener('input', e => { $('v-zoom').textContent = e.target.value + 'x'; });
+
+function readFlags() {
+  const f = {};
+  for (const k in flags) f[k] = $(flags[k]).checked;
+  return f;
+}
+
+// кнопки
+$('btn-reset').addEventListener('click', () => {
+  PARAMS = JSON.parse(JSON.stringify(DEFAULTS));
+  $('c-hairlen').value = '1'; $('c-fingers').value = '3';
+  for (const [id, key] of [['c-hair','hair'],['c-aura','aura'],['c-kameha','kameha'],['c-trail','trail'],['c-skin','skin'],['c-headcol','headBack'],['c-cloth','cloth']]) $(id).value = DEFAULTS.colors[key];
+  $('c-eyecount').value = '1'; $('c-eyes').value = 'rect';
+  syncStateControls(); buildPartControls(); buildEye3Controls();
+});
+$('btn-src').addEventListener('click', () => {
+  $('src-view').textContent = '// ===== PARAMS (значения) =====\nconst PARAMS = ' + JSON.stringify(PARAMS, null, 2) + ';\n\n// ===== draw-source (код) =====\n' + src.trim();
+  $('src-wrap').style.display = 'block';
+});
+$('btn-src-close').addEventListener('click', () => $('src-wrap').style.display = 'none');
+// сохранение PARAMS в JSON-файл
+$('btn-save').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(PARAMS, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'esf-character.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// загрузка PARAMS из JSON-файла
+$('btn-loadfile').addEventListener('click', () => $('file-inp').click());
+$('file-inp').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      PARAMS = JSON.parse(reader.result);
+      normalizeParams();
+      syncStateControls(); buildPartControls(); buildEye3Controls();
+      $('c-hairlen').value = String(PARAMS.hairLen || 1);
+      $('c-fingers').value = String(PARAMS.fingers || 3);
+      for (const [id, key] of [['c-hair','hair'],['c-aura','aura'],['c-kameha','kameha'],['c-trail','trail'],['c-skin','skin'],['c-headcol','headBack'],['c-cloth','cloth']]) {
+        if (PARAMS.colors && PARAMS.colors[key]) $(id).value = PARAMS.colors[key];
+      }
+      $('c-eyecount').value = String(PARAMS.eyes ? PARAMS.eyes.count : 1);
+      $('c-eyes').value = (PARAMS.eyes && PARAMS.eyes.style) || 'rect';
+      buildEye3Controls();
+    } catch (err) { alert('Invalid JSON: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// отправить текущий PARAMS родительскому окну (экран выбора персонажа в игре)
+function postLook() {
+  if (window.parent !== window) window.parent.postMessage({ type: 'esf-look', look: PARAMS }, '*');
+}
+$('btn-use').addEventListener('click', postLook);
+
+// рандомизация внешности (те же правила, что у ботов на сервере)
+function hslJ(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const to = x => Math.round(x * 255).toString(16).padStart(2, '0');
+  return '#' + to(f(0)) + to(f(8)) + to(f(4));
+}
+function randomizeLookJS() {
+  const SKINS = ['#f2c49b', '#e8b48a', '#d99e6f', '#c98a5a', '#f6d0b0', '#a9744f', '#8a5a3b'];
+  const CLOTHS = ['#1e293b', '#334155', '#0f172a', '#3b2f2f', '#1a3a2a', '#3a1a1a', '#2a1a3a', '#40342a'];
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  const skin = pick(SKINS);
+  PARAMS.colors.skin = skin;
+  PARAMS.colors.headBack = skin;
+  PARAMS.colors.cloth = pick(CLOTHS);
+  PARAMS.colors.hair = hslJ(rnd(0, 360), rnd(55, 85), rnd(40, 65));
+  PARAMS.colors.aura = hslJ(rnd(0, 360), 80, 60);
+  PARAMS.colors.kameha = hslJ(rnd(0, 360), 85, 55);
+  PARAMS.colors.trail = hslJ(rnd(0, 360), 80, 60);
+  PARAMS.eyes.count = 2;
+  PARAMS.eyes.style = pick(['rect', 'circle', 'angry', 'line', 'glow']);
+  const bald = Math.random() < 0.5;
+  PARAMS.hairLen = bald ? 0 : 1;
+  PARAMS.parts.hairFront.on = !bald;
+  PARAMS.parts.hairMid.on = false;
+  PARAMS.parts.hairLong.on = false;
+  PARAMS.parts.torso.type = pick(['ellipse', 'rect', 'slim']);
+  // обновить пикеры цветов
+  for (const [id, key] of [['c-hair','hair'],['c-aura','aura'],['c-kameha','kameha'],['c-trail','trail'],['c-skin','skin'],['c-headcol','headBack'],['c-cloth','cloth']]) {
+    $(id).value = PARAMS.colors[key];
+  }
+  $('c-hairlen').value = String(PARAMS.hairLen);
+  $('c-eyecount').value = '2';
+  $('c-eyes').value = PARAMS.eyes.style;
+  syncStateControls(); buildPartControls(); buildEye3Controls();
+}
+$('btn-randomize').addEventListener('click', () => { randomizeLookJS(); postLook(); });
+// запрос рандома от родителя
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'esf-randomize') { randomizeLookJS(); postLook(); }
+});
+
+$('btn-import').addEventListener('click', () => {
+  try {
+    PARAMS = JSON.parse($('import-ta').value);
+    normalizeParams();
+    syncStateControls(); buildPartControls(); buildEye3Controls();
+    $('src-wrap').style.display = 'none';
+  } catch (err) { alert('Invalid JSON: ' + err.message); }
+});
+
+// ================= ЦИКЛ =================
+function loop() {
+  tick++;
+  const f = readFlags();
+  const cx = cv.width / 2, cy = cv.height / 2;
+  dummyTarget = { x: cx + 110, y: cy - 40 };
+
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = 'rgba(59,130,246,0.06)';
+  ctx.lineWidth = 1;
+  for (let gx = 0; gx < cv.width; gx += 60) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, cv.height); ctx.stroke(); }
+  for (let gy = 0; gy < cv.height; gy += 60) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(cv.width, gy); ctx.stroke(); }
+
+  const bob = (f.turbo || ['WALK','SWOOP','DASH'].includes($('c-state').value))
+    ? { x: Math.sin(tick * 0.08) * 10, y: Math.cos(tick * 0.11) * 4 } : { x: 0, y: 0 };
+
+  const facingAngle = f.rot ? tick * 0.02 : (Math.sin(tick * 0.01) > 0 ? -0.15 : 0.15);
+
+  const ent = {
+    id: 'demo', name: f.boss ? 'BROLY' : 'Warrior',
+    x: cx + bob.x, y: cy + bob.y,
+    facing: { x: Math.cos(facingAngle), y: Math.sin(facingAngle) },
+    hp: f.boss ? 900 : 75, maxHp: f.boss ? 1500 : 100,
+    colors: PARAMS.colors,
+    state: $('c-state').value,
+    isBot: false, isBoss: f.boss, bossPhase: +$('c-phase').value,
+    turbo: f.turbo,
+    buffShield: f.shield ? 100 : 0, buffPower: f.power ? 100 : 0,
+    hitFlash: f.hit ? 10 : 0, invincible: f.inv ? 100 : 0,
+    meleeCharge: 40,
+    kamehamehaCharge: 75, kamehamehaMaxCharge: 450,
+    kiBlastCharge: 40, kiBlastMaxCharge: 120,
+    grabTarget: f.grab ? 'dummy' : null,
+    trail: f.trail ? Array.from({ length: 6 }, (_, i) => ({ x: cx - 20 - i * 14, y: cy + Math.sin(tick * 0.1 + i) * 4, life: i })) : []
+  };
+
+  const Z = +$('c-zoom').value || 10;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(Z, Z); ctx.translate(-cx, -cy);
+
+  ctx.strokeStyle = 'rgba(34,211,238,0.3)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(ent.x, ent.y); ctx.lineTo(ent.x + ent.facing.x * 30, ent.y + ent.facing.y * 30); ctx.stroke();
+
+  if (f.grab) {
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath(); ctx.ellipse(dummyTarget.x, dummyTarget.y, 16, 14, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#a855f7';
+    ctx.beginPath(); ctx.arc(dummyTarget.x + 6, dummyTarget.y - 2, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  drawEntity(ctx, ent, f.me, tick);
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+
+syncStateControls();
+buildPartControls();
+buildEye3Controls();
+loop();
+</script>
+</body>
+</html>
